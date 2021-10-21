@@ -26,9 +26,13 @@ class Flow(flows.Flow):
         return transforms.CompositeTransform([linear, base])
     
     def _latent_log_prob(self, latents, context=None):
-        """
-        This is dumb and wasteful, but I think it works to get the "off diagonal" KL terms
-        """
         embedded_context = self._embedding_net(context)
-        data, inv_logabsdet = self._transform.inverse(latents, context=embedded_context)
-        return self.log_prob(data, context=context)
+        log_prob = self._distribution.log_prob(latents, context=embedded_context)
+        return log_prob
+    
+    def _fair_forward(self, data, context=None):
+        embedded_context = self._embedding_net(context)
+        noise, logabsdet = self._transform(data, context=embedded_context)
+        log_prob = self._distribution.log_prob(noise, context=embedded_context)
+        # data logprob is log_prob + logabsdet
+        return noise, log_prob, logabsdet

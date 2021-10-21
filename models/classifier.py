@@ -19,7 +19,8 @@ class BinaryClassifier(nn.Module):
         layers.append(nn.Linear(hidden_dim, 1))
         
         self.model = nn.Sequential(*layers)
-        self.criterion = nn.BCEWithLogitsLoss()
+        # self.criterion = nn.BCEWithLogitsLoss()
+        self.criterion = nn.BCELoss()
         
     def forward(self, x):
         return self.model(x)
