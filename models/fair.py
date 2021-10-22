@@ -51,13 +51,24 @@ class BinaryFair(nn.Module):
 
         self.classifier = BinaryClassifier(self.embedding_dim)
 
-    # def forward(self, data, context, return_embedding=False):
-    #     embedding, logabsdet = self.embed(data, context)
+    def forward(self, data, labels, context=None):
+        labels = labels.flatten()
+        data_0 = data[labels == 0]
+        data_1 = data[labels == 1]
+        if context is None:
+            context_0 = None
+            context_1 = None
+        else:
+            context_0 = context[labels == 0]
+            context_1 = context[labels == 1]
+        
+        embedding0, embedding1 = self._embed(data_0=data_0, data_1=data_1, context_0=context_0, context_1=context_1)
 
-    #     label_pred = self.classifier(embedding)
-    #     if return_embedding:
-    #         return label_pred, embedding
-    #     return label_pred
+        embeddings = torch.cat([embedding0, embedding1])
+
+        label_pred = self.classifier(embeddings).sigmoid()
+        
+        return label_pred
 
     def sample(self, n_samples_per_context, context=None):
         samples_0 = self.flow0.sample(num_samples=n_samples_per_context)
@@ -118,7 +129,7 @@ class BinaryFair(nn.Module):
         )
 
         embds = torch.cat([embd_0, embd_1])
-        label_preds = self.classifier.forward(embds).sigmoid()
+        label_preds = self.classifier.forward(embds)
 
         return self.classifier.criterion(label_preds, labels)
 
