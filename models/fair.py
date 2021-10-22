@@ -8,7 +8,7 @@ class BinaryFair(nn.Module):
     def __init__(
         self,
         data_dim,
-        context_dim=1,
+        context_dim=None,
         flow_hidden_dim=32,
         flow_n_layers=1,
         flow_transform_type="MaskedAffineAutoregressiveTransform",
@@ -20,7 +20,7 @@ class BinaryFair(nn.Module):
         super().__init__()
 
         self.data_dim = data_dim
-        self.context_dim = None
+        self.context_dim = context_dim
         self.embedding_dim = data_dim
 
         self.flow_hidden_dim = flow_hidden_dim
@@ -91,14 +91,21 @@ class BinaryFair(nn.Module):
         Note in the paper, they have equal numbers of each class and then take
         the mean after adding. Here we'll take the mean first and then add scalars
         """
-        z0, logP_Z0_z0, _ = self.flow0._fair_forward(data_0, context_0)
-        z1, logP_Z1_z1, _ = self.flow1._fair_forward(data_1, context_1)
+        z0, logP_Z0_z0, logdetjacZ0z0 = self.flow0._fair_forward(data_0, context_0)
+        z1, logP_Z1_z1, logdetjacZ1z1 = self.flow1._fair_forward(data_1, context_1)
 
         log_P_Z0_z1 = self.flow0._latent_log_prob(z1, context_1)
         log_P_Z1_z0 = self.flow1._latent_log_prob(z0, context_0)
 
-        L_0 = logP_Z0_z0 - log_P_Z1_z0
-        L_1 = logP_Z1_z1 - log_P_Z0_z1
+        # L_0 = logP_Z0_z0 - log_P_Z1_z0  # this is 0
+        # L_1 = logP_Z1_z1 - log_P_Z0_z1
+
+        # print("L0", L_0.mean())
+        # print("L1", L_1.mean())
+        
+        L_0 = - (logP_Z0_z0 + logdetjacZ0z0)
+        L_1 = - (logP_Z1_z1 + logdetjacZ1z1)
+
 
         return (L_0 + L_1).mean()
 
@@ -112,8 +119,6 @@ class BinaryFair(nn.Module):
 
         embds = torch.cat([embd_0, embd_1])
         label_preds = self.classifier.forward(embds).sigmoid()
-
-        print((label_preds - labels)/label_preds.shape[0])
 
         return self.classifier.criterion(label_preds, labels)
 
