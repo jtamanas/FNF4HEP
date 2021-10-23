@@ -51,23 +51,12 @@ class BinaryFair(nn.Module):
 
         self.classifier = BinaryClassifier(self.embedding_dim)
 
-    def forward(self, data, labels, context=None):
-        labels = labels.flatten()
-        data_0 = data[labels == 0]
-        data_1 = data[labels == 1]
-        if context is None:
-            context_0 = None
-            context_1 = None
-        else:
-            context_0 = context[labels == 0]
-            context_1 = context[labels == 1]
-        
-        embedding0, embedding1 = self._embed(data_0=data_0, data_1=data_1, context_0=context_0, context_1=context_1)
+    def forward(self, data, context):
+        embedding0, embedding1 = self._embed(data_0=data, data_1=data)
 
-        embeddings = torch.cat([embedding0, embedding1])
-
+        embeddings = embedding0 * (context == 0) + embedding1 * (context == 1)
         label_pred = self.classifier(embeddings).sigmoid()
-        
+
         return label_pred
 
     def sample(self, n_samples_per_context, context=None):
@@ -113,20 +102,17 @@ class BinaryFair(nn.Module):
 
         # print("L0", L_0.mean())
         # print("L1", L_1.mean())
-        
-        L_0 = - (logP_Z0_z0 + logdetjacZ0z0)
-        L_1 = - (logP_Z1_z1 + logdetjacZ1z1)
 
+        L_0 = -(logP_Z0_z0 + logdetjacZ0z0)
+        L_1 = -(logP_Z1_z1 + logdetjacZ1z1)
 
         return (L_0 + L_1).mean()
 
-    def _classifier_loss(self, embd_0, embd_1, context_0=None, context_1=None):
+    def _classifier_loss(self, embd_0, embd_1, labels_0, labels_1):
         """
         Not yet sure how to handle the context here.
         """
-        labels = torch.cat(
-            [torch.zeros(embd_0.shape[0], 1), torch.ones(embd_1.shape[0], 1)]
-        )
+        labels = torch.cat([labels_0, labels_1])
 
         embds = torch.cat([embd_0, embd_1])
         label_preds = self.classifier.forward(embds)
@@ -134,13 +120,20 @@ class BinaryFair(nn.Module):
         return self.classifier.criterion(label_preds, labels)
 
     def loss(
-        self, data_0, data_1, context_0=None, context_1=None, return_all_losses=False
+        self,
+        data_0,
+        data_1,
+        labels_0,
+        labels_1,
+        context_0=None,
+        context_1=None,
+        return_all_losses=False,
     ):
         L_KL = self._KL_loss(data_0, data_1, context_0, context_1)
 
         embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
 
-        L_clf = self._classifier_loss(embedding_0, embedding_1, context_0, context_1)
+        L_clf = self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1)
         L_total = self.gamma * L_KL + (1.0 - self.gamma) * L_clf
 
         if return_all_losses:
