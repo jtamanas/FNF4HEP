@@ -59,9 +59,10 @@ class BinaryFair(nn.Module):
 
         return label_pred
 
-    def sample(self, n_samples_per_context, context=None):
-        samples_0 = self.flow0.sample(num_samples=n_samples_per_context)
-        samples_1 = self.flow1.sample(num_samples=n_samples_per_context)
+    def sample(self, context=None):
+        samples_0 = self.flow0.sample(num_samples=context.shape[0])
+        samples_1 = self.flow1.sample(num_samples=context.shape[0])
+        
         if context is not None:
             context = context.bool()
             samples = samples_0 * (~context) + samples_1 * context
