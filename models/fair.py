@@ -62,7 +62,7 @@ class BinaryFair(nn.Module):
     def sample(self, context=None):
         samples_0 = self.flow0.sample(num_samples=context.shape[0])
         samples_1 = self.flow1.sample(num_samples=context.shape[0])
-        
+
         if context is not None:
             context = context.bool()
             samples = samples_0 * (~context) + samples_1 * context
@@ -82,7 +82,25 @@ class BinaryFair(nn.Module):
 
         return embedding0, embedding1
 
-    def _KL_loss(self, data_0, data_1, context_0=None, context_1=None):
+    def _fair_embed(self, x0=None, x1=None, context_0=None, context_1=None):
+
+        (
+            z0,
+            _,
+        ) = self.flow0._transform(x0, context_0)
+        (
+            z1,
+            _,
+        ) = self.flow1._transform(x1, context_1)
+
+        f0invz1, logdetf0invz1 = self.flow0._transform.inverse(z1, context_0)
+        f1invz0, logdetf1invz0 = self.flow1._transform.inverse(z0, context_1)
+
+        return f0invz1, f1invz0
+
+    def _KL_loss(
+        self, data_0, data_1, context_0=None, context_1=None, probability_flow=None
+    ):
         """
         data_0: [batch_size, data_dim]
             Data with label 0
@@ -92,20 +110,26 @@ class BinaryFair(nn.Module):
         Note in the paper, they have equal numbers of each class and then take
         the mean after adding. Here we'll take the mean first and then add scalars
         """
-        z0, logP_Z0_z0, logdetjacZ0z0 = self.flow0._fair_forward(data_0, context_0)
-        z1, logP_Z1_z1, logdetjacZ1z1 = self.flow1._fair_forward(data_1, context_1)
+        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
+        z1, _, _ = self.flow1._fair_forward(data_1, context_1)
 
-        log_P_Z0_z1 = self.flow0._latent_log_prob(z1, context_1)
-        log_P_Z1_z0 = self.flow1._latent_log_prob(z0, context_0)
+        f0invz0, logdetf0invz0 = self.flow0._transform.inverse(z0, context_0)
+        f1invz1, logdetf1invz1 = self.flow1._transform.inverse(z1, context_1)
+        f0invz1, logdetf0invz1 = self.flow0._transform.inverse(z1, context_0)
+        f1invz0, logdetf1invz0 = self.flow1._transform.inverse(z0, context_1)
 
-        # L_0 = logP_Z0_z0 - log_P_Z1_z0  # this is 0
-        # L_1 = logP_Z1_z1 - log_P_Z0_z1
+        log_P_0_z0 = probability_flow.log_prob(f0invz0, context_0)
+        log_P_1_z1 = probability_flow.log_prob(f1invz1, context_1)
+        log_P_0_z1 = probability_flow.log_prob(f0invz1, context_0)
+        log_P_1_z0 = probability_flow.log_prob(f1invz0, context_1)
 
-        # print("L0", L_0.mean())
-        # print("L1", L_1.mean())
+        logP_Z0_z0 = log_P_0_z0 + logdetf0invz0
+        logP_Z1_z1 = log_P_1_z1 + logdetf1invz1
+        logP_Z0_z1 = log_P_0_z1 + logdetf0invz1
+        logP_Z1_z0 = log_P_1_z0 + logdetf1invz0
 
-        L_0 = -(logP_Z0_z0 + logdetjacZ0z0)
-        L_1 = -(logP_Z1_z1 + logdetjacZ1z1)
+        L_0 = logP_Z0_z0 - logP_Z1_z0
+        L_1 = logP_Z1_z1 - logP_Z0_z1
 
         return (L_0 + L_1).mean()
 
@@ -129,8 +153,9 @@ class BinaryFair(nn.Module):
         context_0=None,
         context_1=None,
         return_all_losses=False,
+        probability_flow=None,
     ):
-        L_KL = self._KL_loss(data_0, data_1, context_0, context_1)
+        L_KL = self._KL_loss(data_0, data_1, context_0, context_1, probability_flow)
 
         embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
 
