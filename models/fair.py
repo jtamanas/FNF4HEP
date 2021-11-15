@@ -98,6 +98,42 @@ class BinaryFair(nn.Module):
 
         return f0invz1, f1invz0
 
+    def optimal_adversary(
+        self,
+        data_0,
+        data_1,
+        context_0=None,
+        context_1=None,
+        probability_flow=None,
+    ):
+        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
+        z1, _, _ = self.flow1._fair_forward(data_1, context_1)
+
+        f0invz0, logdetf0invz0 = self.flow0._transform.inverse(z0, context_0)
+        f1invz1, logdetf1invz1 = self.flow1._transform.inverse(z1, context_1)
+        f0invz1, logdetf0invz1 = self.flow0._transform.inverse(z1, context_0)
+        f1invz0, logdetf1invz0 = self.flow1._transform.inverse(z0, context_1)
+
+        P_0_z0 = probability_flow.log_prob(f0invz0, context_0)
+        P_1_z1 = probability_flow.log_prob(f1invz1, context_1)
+        P_0_z1 = probability_flow.log_prob(f0invz1, context_0)
+        P_1_z0 = probability_flow.log_prob(f1invz0, context_1)
+
+        P_Z0_z0 = P_0_z0 + logdetf0invz0
+        P_Z1_z1 = P_1_z1 + logdetf1invz1
+        P_Z0_z1 = P_0_z1 + logdetf0invz1
+        P_Z1_z0 = P_1_z0 + logdetf1invz0
+
+        mu_star_0 = P_Z1_z0 >= P_Z0_z0
+        mu_star_1 = P_Z1_z1 >= P_Z0_z1
+
+        mu_star_0_avg = (mu_star_0 * 1.0).mean()
+        mu_star_1_avg = (mu_star_1 * 1.0).mean()
+
+        stat_dist = mu_star_0_avg - mu_star_1_avg
+
+        return mu_star_0_avg, mu_star_1_avg, stat_dist
+
     def _KL_loss(
         self, data_0, data_1, context_0=None, context_1=None, probability_flow=None
     ):
