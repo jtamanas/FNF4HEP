@@ -93,8 +93,8 @@ class BinaryFair(nn.Module):
             _,
         ) = self.flow1._transform(x1, context_1)
 
-        f0invz1, logdetf0invz1 = self.flow0._transform.inverse(z1, context_0)
-        f1invz0, logdetf1invz0 = self.flow1._transform.inverse(z0, context_1)
+        f0invz1, _ = self.flow0._transform.inverse(z1, context_0)
+        f1invz0, _ = self.flow1._transform.inverse(z0, context_1)
 
         return f0invz1, f1invz0
 
@@ -132,7 +132,15 @@ class BinaryFair(nn.Module):
 
         stat_dist = mu_star_0_avg - mu_star_1_avg
 
-        return mu_star_0_avg, mu_star_1_avg, stat_dist
+        return (
+            mu_star_0_avg,
+            mu_star_1_avg,
+            stat_dist,
+            P_Z0_z0,
+            P_Z1_z1,
+            P_Z0_z1,
+            P_Z1_z0,
+        )
 
     def _KL_loss(
         self, data_0, data_1, context_0=None, context_1=None, probability_flow=None
