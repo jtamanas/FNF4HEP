@@ -75,10 +75,10 @@ class BinaryFair(nn.Module):
         embedding1 = None
 
         if data_0 is not None:
-            embedding0, logabsdet0 = self.flow0._transform(data_0, context=context_0)
+            embedding0, logabsdet0 = self.flow0._transform(data_0, context=None)
 
         if data_1 is not None:
-            embedding1, logabsdet1 = self.flow1._transform(data_1, context=context_1)
+            embedding1, logabsdet1 = self.flow1._transform(data_1, context=None)
 
         return embedding0, embedding1
 
@@ -87,14 +87,14 @@ class BinaryFair(nn.Module):
         (
             z0,
             _,
-        ) = self.flow0._transform(x0, context_0)
+        ) = self.flow0._transform(x0, None)
         (
             z1,
             _,
-        ) = self.flow1._transform(x1, context_1)
+        ) = self.flow1._transform(x1, None)
 
-        f0invz1, _ = self.flow0._transform.inverse(z1, context_0)
-        f1invz0, _ = self.flow1._transform.inverse(z0, context_1)
+        f0invz1, _ = self.flow0._transform.inverse(z1, None)
+        f1invz0, _ = self.flow1._transform.inverse(z0, None)
 
         return f0invz1, f1invz0
 
@@ -106,8 +106,8 @@ class BinaryFair(nn.Module):
         context_1=None,
         probability_flow=None,
     ):
-        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
-        z1, _, _ = self.flow1._fair_forward(data_1, context_1)
+        z0, _, _ = self.flow0._fair_forward(data_0, None)
+        z1, _, _ = self.flow1._fair_forward(data_1, None)
 
         logP_Z0_z0, logP_Z1_z0 = self._log_prob(
             z0, context_0, context_1, probability_flow
