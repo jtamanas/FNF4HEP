@@ -136,8 +136,8 @@ class BinaryFair(nn.Module):
 
     def _log_prob(self, z, context_0=None, context_1=None, probability_flow=None):
 
-        f0invz, logdetf0invz = self.flow0._transform.inverse(z, context_0)
-        f1invz, logdetf1invz = self.flow1._transform.inverse(z, context_1)
+        f0invz, logdetf0invz = self.flow0._transform.inverse(z, None)
+        f1invz, logdetf1invz = self.flow1._transform.inverse(z, None)
 
         log_P_0_z = probability_flow.log_prob(f0invz, context_0)
         log_P_1_z = probability_flow.log_prob(f1invz, context_1)
@@ -159,8 +159,8 @@ class BinaryFair(nn.Module):
         Note in the paper, they have equal numbers of each class and then take
         the mean after adding. Here we'll take the mean first and then add scalars
         """
-        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
-        z1, _, _ = self.flow1._fair_forward(data_1, context_1)
+        z0, _, _ = self.flow0._fair_forward(data_0, None)
+        z1, _, _ = self.flow1._fair_forward(data_1, None)
 
         logP_Z0_z0, logP_Z1_z0 = self._log_prob(
             z0, context_0, context_1, probability_flow
