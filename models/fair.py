@@ -109,23 +109,15 @@ class BinaryFair(nn.Module):
         z0, _, _ = self.flow0._fair_forward(data_0, context_0)
         z1, _, _ = self.flow1._fair_forward(data_1, context_1)
 
-        f0invz0, logdetf0invz0 = self.flow0._transform.inverse(z0, context_0)
-        f1invz1, logdetf1invz1 = self.flow1._transform.inverse(z1, context_1)
-        f0invz1, logdetf0invz1 = self.flow0._transform.inverse(z1, context_0)
-        f1invz0, logdetf1invz0 = self.flow1._transform.inverse(z0, context_1)
+        logP_Z0_z0, logP_Z1_z0 = self._log_prob(
+            z0, context_0, context_1, probability_flow
+        )
+        logP_Z0_z1, logP_Z1_z1 = self._log_prob(
+            z1, context_0, context_1, probability_flow
+        )
 
-        P_0_z0 = probability_flow.log_prob(f0invz0, context_0)
-        P_1_z1 = probability_flow.log_prob(f1invz1, context_1)
-        P_0_z1 = probability_flow.log_prob(f0invz1, context_0)
-        P_1_z0 = probability_flow.log_prob(f1invz0, context_1)
-
-        P_Z0_z0 = P_0_z0 + logdetf0invz0
-        P_Z1_z1 = P_1_z1 + logdetf1invz1
-        P_Z0_z1 = P_0_z1 + logdetf0invz1
-        P_Z1_z0 = P_1_z0 + logdetf1invz0
-
-        mu_star_0 = P_Z1_z0 >= P_Z0_z0
-        mu_star_1 = P_Z1_z1 >= P_Z0_z1
+        mu_star_0 = logP_Z1_z0 >= logP_Z0_z0
+        mu_star_1 = logP_Z1_z1 >= logP_Z0_z1
 
         mu_star_0_avg = (mu_star_0 * 1.0).mean()
         mu_star_1_avg = (mu_star_1 * 1.0).mean()
@@ -136,11 +128,24 @@ class BinaryFair(nn.Module):
             mu_star_0_avg,
             mu_star_1_avg,
             stat_dist,
-            P_Z0_z0,
-            P_Z1_z1,
-            P_Z0_z1,
-            P_Z1_z0,
+            logP_Z0_z0,
+            logP_Z1_z1,
+            logP_Z0_z1,
+            logP_Z1_z0,
         )
+
+    def _log_prob(self, z, context_0=None, context_1=None, probability_flow=None):
+
+        f0invz, logdetf0invz = self.flow0._transform.inverse(z, context_0)
+        f1invz, logdetf1invz = self.flow1._transform.inverse(z, context_1)
+
+        log_P_0_z = probability_flow.log_prob(f0invz, context_0)
+        log_P_1_z = probability_flow.log_prob(f1invz, context_1)
+
+        logP_Z0_z = log_P_0_z + logdetf0invz
+        logP_Z1_z = log_P_1_z + logdetf1invz
+
+        return logP_Z0_z, logP_Z1_z
 
     def _KL_loss(
         self, data_0, data_1, context_0=None, context_1=None, probability_flow=None
@@ -157,20 +162,12 @@ class BinaryFair(nn.Module):
         z0, _, _ = self.flow0._fair_forward(data_0, context_0)
         z1, _, _ = self.flow1._fair_forward(data_1, context_1)
 
-        f0invz0, logdetf0invz0 = self.flow0._transform.inverse(z0, context_0)
-        f1invz1, logdetf1invz1 = self.flow1._transform.inverse(z1, context_1)
-        f0invz1, logdetf0invz1 = self.flow0._transform.inverse(z1, context_0)
-        f1invz0, logdetf1invz0 = self.flow1._transform.inverse(z0, context_1)
-
-        log_P_0_z0 = probability_flow.log_prob(f0invz0, context_0)
-        log_P_1_z1 = probability_flow.log_prob(f1invz1, context_1)
-        log_P_0_z1 = probability_flow.log_prob(f0invz1, context_0)
-        log_P_1_z0 = probability_flow.log_prob(f1invz0, context_1)
-
-        logP_Z0_z0 = log_P_0_z0 + logdetf0invz0
-        logP_Z1_z1 = log_P_1_z1 + logdetf1invz1
-        logP_Z0_z1 = log_P_0_z1 + logdetf0invz1
-        logP_Z1_z0 = log_P_1_z0 + logdetf1invz0
+        logP_Z0_z0, logP_Z1_z0 = self._log_prob(
+            z0, context_0, context_1, probability_flow
+        )
+        logP_Z0_z1, logP_Z1_z1 = self._log_prob(
+            z1, context_0, context_1, probability_flow
+        )
 
         L_0 = logP_Z0_z0 - logP_Z1_z0
         L_1 = logP_Z1_z1 - logP_Z0_z1
