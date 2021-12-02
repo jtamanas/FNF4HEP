@@ -124,15 +124,7 @@ class BinaryFair(nn.Module):
 
         stat_dist = mu_star_0_avg - mu_star_1_avg
 
-        return (
-            mu_star_0_avg,
-            mu_star_1_avg,
-            stat_dist,
-            logP_Z0_z0,
-            logP_Z1_z1,
-            logP_Z0_z1,
-            logP_Z1_z0,
-        )
+        return stat_dist, mu_star_0, mu_star_1
 
     def _log_prob(self, z, context_0=None, context_1=None, probability_flow=None):
 
@@ -196,6 +188,14 @@ class BinaryFair(nn.Module):
         return_all_losses=False,
         probability_flow=None,
     ):
+        if self.gamma == 0:
+            embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
+            return (
+                torch.tensor(0),
+                self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
+                self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
+            )
+
         L_KL = self._KL_loss(data_0, data_1, context_0, context_1, probability_flow)
 
         embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
