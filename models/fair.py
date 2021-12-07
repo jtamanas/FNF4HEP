@@ -75,10 +75,10 @@ class BinaryFair(nn.Module):
         embedding1 = None
 
         if data_0 is not None:
-            embedding0, logabsdet0 = self.flow0._transform(data_0, context=context_0)
+            embedding0, logabsdet0 = self.flow0._transform(data_0, context=None)
 
         if data_1 is not None:
-            embedding1, logabsdet1 = self.flow1._transform(data_1, context=context_1)
+            embedding1, logabsdet1 = self.flow1._transform(data_1, context=None)
 
         return embedding0, embedding1
 
@@ -87,16 +87,57 @@ class BinaryFair(nn.Module):
         (
             z0,
             _,
-        ) = self.flow0._transform(x0, context_0)
+        ) = self.flow0._transform(x0, None)
         (
             z1,
             _,
-        ) = self.flow1._transform(x1, context_1)
+        ) = self.flow1._transform(x1, None)
 
-        f0invz1, logdetf0invz1 = self.flow0._transform.inverse(z1, context_0)
-        f1invz0, logdetf1invz0 = self.flow1._transform.inverse(z0, context_1)
+        f0invz1, _ = self.flow0._transform.inverse(z1, None)
+        f1invz0, _ = self.flow1._transform.inverse(z0, None)
 
         return f0invz1, f1invz0
+
+    def optimal_adversary(
+        self,
+        data_0,
+        data_1,
+        context_0=None,
+        context_1=None,
+        probability_flow=None,
+    ):
+        z0, _, _ = self.flow0._fair_forward(data_0, None)
+        z1, _, _ = self.flow1._fair_forward(data_1, None)
+
+        logP_Z0_z0, logP_Z1_z0 = self._log_prob(
+            z0, context_0, context_1, probability_flow
+        )
+        logP_Z0_z1, logP_Z1_z1 = self._log_prob(
+            z1, context_0, context_1, probability_flow
+        )
+
+        mu_star_0 = logP_Z1_z0 >= logP_Z0_z0
+        mu_star_1 = logP_Z1_z1 >= logP_Z0_z1
+
+        mu_star_0_avg = (mu_star_0 * 1.0).mean()
+        mu_star_1_avg = (mu_star_1 * 1.0).mean()
+
+        stat_dist = mu_star_0_avg - mu_star_1_avg
+
+        return stat_dist, mu_star_0, mu_star_1
+
+    def _log_prob(self, z, context_0=None, context_1=None, probability_flow=None):
+
+        f0invz, logdetf0invz = self.flow0._transform.inverse(z, None)
+        f1invz, logdetf1invz = self.flow1._transform.inverse(z, None)
+
+        log_P_0_z = probability_flow.log_prob(f0invz, context_0)
+        log_P_1_z = probability_flow.log_prob(f1invz, context_1)
+
+        logP_Z0_z = log_P_0_z + logdetf0invz
+        logP_Z1_z = log_P_1_z + logdetf1invz
+
+        return logP_Z0_z, logP_Z1_z
 
     def _KL_loss(
         self, data_0, data_1, context_0=None, context_1=None, probability_flow=None
@@ -110,23 +151,15 @@ class BinaryFair(nn.Module):
         Note in the paper, they have equal numbers of each class and then take
         the mean after adding. Here we'll take the mean first and then add scalars
         """
-        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
-        z1, _, _ = self.flow1._fair_forward(data_1, context_1)
+        z0, _, _ = self.flow0._fair_forward(data_0, None)
+        z1, _, _ = self.flow1._fair_forward(data_1, None)
 
-        f0invz0, logdetf0invz0 = self.flow0._transform.inverse(z0, context_0)
-        f1invz1, logdetf1invz1 = self.flow1._transform.inverse(z1, context_1)
-        f0invz1, logdetf0invz1 = self.flow0._transform.inverse(z1, context_0)
-        f1invz0, logdetf1invz0 = self.flow1._transform.inverse(z0, context_1)
-
-        log_P_0_z0 = probability_flow.log_prob(f0invz0, context_0)
-        log_P_1_z1 = probability_flow.log_prob(f1invz1, context_1)
-        log_P_0_z1 = probability_flow.log_prob(f0invz1, context_0)
-        log_P_1_z0 = probability_flow.log_prob(f1invz0, context_1)
-
-        logP_Z0_z0 = log_P_0_z0 + logdetf0invz0
-        logP_Z1_z1 = log_P_1_z1 + logdetf1invz1
-        logP_Z0_z1 = log_P_0_z1 + logdetf0invz1
-        logP_Z1_z0 = log_P_1_z0 + logdetf1invz0
+        logP_Z0_z0, logP_Z1_z0 = self._log_prob(
+            z0, context_0, context_1, probability_flow
+        )
+        logP_Z0_z1, logP_Z1_z1 = self._log_prob(
+            z1, context_0, context_1, probability_flow
+        )
 
         L_0 = logP_Z0_z0 - logP_Z1_z0
         L_1 = logP_Z1_z1 - logP_Z0_z1
@@ -155,6 +188,14 @@ class BinaryFair(nn.Module):
         return_all_losses=False,
         probability_flow=None,
     ):
+        if self.gamma == 0:
+            embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
+            return (
+                torch.tensor(0),
+                self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
+                self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
+            )
+
         L_KL = self._KL_loss(data_0, data_1, context_0, context_1, probability_flow)
 
         embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
