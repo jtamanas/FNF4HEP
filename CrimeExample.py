@@ -26,7 +26,7 @@ labels = data_file["labels"]
     context_test,
     labels_train,
     labels_test,
-) = train_test_split(data, context, labels, test_size=0.05)
+) = train_test_split(data, context, labels, test_size=0.1)
 (
     data_train,
     data_val,
