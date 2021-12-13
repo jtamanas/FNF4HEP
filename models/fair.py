@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from .flow import Flow
 from .classifier import BinaryClassifier
+from sklearn.metrics import accuracy_score
 
 
 class BinaryFair(nn.Module):
@@ -58,6 +59,11 @@ class BinaryFair(nn.Module):
         label_pred = self.classifier(embeddings).sigmoid()
 
         return label_pred
+
+    def classifier_accuracy(self, embd, labels):
+        label_pred = self.classifier(embd).sigmoid()
+        bin_pred = (label_pred > 0.5).float()
+        return accuracy_score(bin_pred, labels)
 
     def sample(self, context=None):
         samples_0 = self.flow0.sample(num_samples=context.shape[0])

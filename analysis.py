@@ -44,7 +44,6 @@ for gamma in gammas:
     Fairs.append(Fair)
 
 # Parameters
-params = {"batch_size": 64, "shuffle": True}
 
 # Generators
 # data_set_test = TensorDataset(data_test, context_test)
@@ -73,6 +72,12 @@ data_1_test = data_test[context_test.flatten() == 1]
 labels_1_test = labels_test[context_test.flatten() == 1]
 context_1_test = context_test[context_test.flatten() == 1]
 
+# Losing some data here, but want batches to have same length
+params = {
+    "batch_size": min(data_1_test.shape[0], data_0_test.shape[0]),
+    "shuffle": True,
+}
+
 label_0_set_test = TensorDataset(data_0_test, labels_0_test, context_0_test)
 label_0_generator_test = torch.utils.data.DataLoader(label_0_set_test, **params)
 
@@ -98,26 +103,50 @@ for fair in Fairs:
 
 # Calculate the accuracy of label predictions
 
-accs = []
+add_accs = []
 for fair in Fairs:
     with torch.no_grad():
         # idx = (data_file["context"] == 0).flatten()
         embedding_0, embedding_1 = fair._embed(data_0_test, data_1_test)
 
-    acc_test = EmpiricalStatisticalDistance(
+    # I don't think this is the fair classifier
+    # Adversarial accuracy
+    add_acc = EmpiricalStatisticalDistance(
         embedding_0,
         embedding_1,
-        hidden_dim=64,
-        n_layers=5,
-        n_epochs=200,
+        hidden_dim=32,
+        n_layers=3,
+        n_epochs=300,
         report_accuracy=True,
     )
-    accs.append(acc_test)
+    add_accs.append(add_acc)
 
 # plot result (can move to analysis script later)
-plt.plot(stat_dists, accs, "-o", color="orange")
+plt.plot(stat_dists, add_accs, "-o", color="orange")
 plt.xlim(0, 1)
-plt.ylim(0.45, 1)
+plt.ylim(0.4, 1)
 plt.xlabel("Statistical distance")
-plt.ylabel("Accuracy")
-plt.savefig("Figures/fair_accuracy_vs_stat_dist_val01.png")
+plt.ylabel("Adversarial Accuracy")
+plt.savefig("Figures/add_accuracy_vs_stat_dist.png")
+plt.close()
+
+bin_accs = []
+for fair in Fairs:
+    with torch.no_grad():
+        # idx = (data_file["context"] == 0).flatten()
+        embedding_0, embedding_1 = fair._embed(data_0_test, data_1_test)
+
+        embedding = torch.cat((embedding_0, embedding_1))
+        labels = torch.cat((labels_0_test, labels_1_test))
+    # I don't think this is the fair classifier
+    # Adversarial accuracy
+    bin_acc = fair.classifier_accuracy(embedding, labels)
+    bin_accs.append(bin_acc)
+
+# plot result (can move to analysis script later)
+plt.plot(stat_dists, bin_accs, "-o", color="orange")
+plt.xlim(0, 1)
+plt.ylim(0.4, 1)
+plt.xlabel("Statistical distance")
+plt.ylabel("Binary Classifier Accuracy")
+plt.savefig("Figures/bin_accuracy_vs_stat_dist.png")

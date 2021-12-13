@@ -24,6 +24,7 @@ def EmpiricalStatisticalDistance(
     )
 
     data = torch.vstack([samples_0, samples_1])
+    # this is really context, not labels
     labels = torch.vstack(
         [torch.zeros(samples_0.shape[0], 1), torch.ones(samples_1.shape[0], 1)]
     )
