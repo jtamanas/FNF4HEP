@@ -154,7 +154,7 @@ for gamma in gammas:
     )
     optimizer = torch.optim.AdamW(Fair.parameters(), lr=1e-3, weight_decay=1e-4)
 
-    n_steps = 5000
+    n_steps = 10000
     num_epochs = 5
     best_params_fair = Fair.state_dict()
     best_loss_val = np.inf
@@ -201,47 +201,15 @@ for gamma in gammas:
     Fairs.append(Fair)
 
 
-# calculate the statistical distance
-
-data_0_test, labels_0_test, context_0_test = next(iter(label_0_generator_test))
-data_1_test, labels_1_test, context_1_test = next(iter(label_1_generator_test))
-stat_dists = []
+# Save models
+torch.save(probability_flow.state_dict(), "saved_models/probability_flow.pth")
 
 for fair in Fairs:
-    stat_dist, _, _ = fair.optimal_adversary(
-        data_0_test,
-        data_1_test,
-        context_0=context_0_test,
-        context_1=context_1_test,
-        probability_flow=probability_flow,
-    )
-    stat_dists.append(abs(stat_dist.item()))
+    torch.save(fair.state_dict(), "saved_models/fair_" + str(fair.gamma) + ".pth")
 
-
-# Calculate the accuracy of label predictions
-
-accs = []
-for fair in Fairs:
-    with torch.no_grad():
-        idx = (data_file["context"] == 0).flatten()
-        embedding_0, embedding_1 = fair._embed(
-            data_file["data"][idx], data_file["data"][~idx]
-        )
-
-    acc_test = EmpiricalStatisticalDistance(
-        embedding_0,
-        embedding_1,
-        hidden_dim=64,
-        n_layers=5,
-        n_epochs=200,
-        report_accuracy=True,
-    )
-    accs.append(acc_test)
-
-# plot result (can move to analysis script later)
-plt.plot(stat_dists, accs, "-o", color="orange")
-plt.xlim(0, 1)
-plt.ylim(0.45, 1)
-plt.xlabel("statistical distance")
-plt.ylabel("adversarial accuracy?")
-plt.savefig("Figures/fair_accuracy_vs_stat_dist_val.png")
+np.savez(
+    "saved_data/data.npz",
+    data_test=data_test,
+    labels_test=labels_test,
+    context_test=context_test,
+)
