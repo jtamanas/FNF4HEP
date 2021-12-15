@@ -116,7 +116,7 @@ for fair in Fairs:
         embedding_1,
         hidden_dim=32,
         n_layers=3,
-        n_epochs=300,
+        n_epochs=100,
         report_accuracy=True,
     )
     add_accs.append(add_acc)
