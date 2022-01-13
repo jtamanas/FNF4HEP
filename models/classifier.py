@@ -23,8 +23,13 @@ class BinaryClassifier(nn.Module):
         # self.criterion = nn.BCELoss()
         
     def forward(self, x):
-        return self.model(x)
+        return self.model(x).squeeze()
     
     def loss(self, x, labels):
-        y = self.forward(x)
+        y = self.forward(x).squeeze()
         return self.criterion(y, labels)
+
+    def predict(self, x):
+        y = self.forward(x).squeeze()
+        return torch.round(torch.sigmoid(y))
+        # return torch.sigmoid(y)
