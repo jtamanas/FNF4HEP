@@ -17,6 +17,7 @@ class BinaryClassifier(nn.Module):
             layers.append(getattr(nn, activation)())
             
         layers.append(nn.Linear(hidden_dim, 1))
+        # layers.append(nn.Sigmoid())
         
         self.model = nn.Sequential(*layers)
         self.criterion = nn.BCEWithLogitsLoss()
@@ -31,5 +32,5 @@ class BinaryClassifier(nn.Module):
 
     def predict(self, x):
         y = self.forward(x).squeeze()
-        return torch.round(torch.sigmoid(y))
-        # return torch.sigmoid(y)
+        return torch.round(y)
+    
