@@ -16,6 +16,9 @@ class BinaryFair(nn.Module):
         classifier_hidden_dim=32,
         classifier_n_layers=2,
         classifier_activation="GELU",
+        num_bins=0,
+        tails=None,
+        tail_bound=1.0,
         gamma=0.5,
     ):
         super().__init__()
@@ -32,6 +35,10 @@ class BinaryFair(nn.Module):
         self.classifier_n_layers = classifier_n_layers
         self.classifier_activation = classifier_activation
 
+        self.num_bins = num_bins
+        self.tails = tails
+        self.tail_bound = tail_bound
+
         self.gamma = gamma
 
         self.flow0 = Flow(
@@ -40,6 +47,9 @@ class BinaryFair(nn.Module):
             hidden_dim=self.flow_hidden_dim,
             n_layers=self.flow_n_layers,
             transform_type=self.flow_transform_type,
+            num_bins=self.num_bins,
+            tails=self.tails,
+            tail_bound=self.tail_bound,
         )
 
         self.flow1 = Flow(
@@ -48,6 +58,9 @@ class BinaryFair(nn.Module):
             hidden_dim=self.flow_hidden_dim,
             n_layers=self.flow_n_layers,
             transform_type=self.flow_transform_type,
+            num_bins=self.num_bins,
+            tails=self.tails,
+            tail_bound=self.tail_bound,
         )
 
         self.classifier = BinaryClassifier(self.embedding_dim)

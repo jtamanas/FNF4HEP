@@ -1,5 +1,6 @@
 # Define flow
 from nflows import transforms, distributions, flows
+from .transforms import MaskedUMNNAutoregressiveTransform
 
 
 class Flow(flows.Flow):
@@ -48,6 +49,12 @@ class Flow(flows.Flow):
                 num_bins=self.num_bins,
                 tails=self.tails,
                 tail_bound=self.tail_bound,
+            )
+        elif transform_type == "MaskedUMNNAutoregressiveTransform":
+            base = MaskedUMNNAutoregressiveTransform(
+                features=self.data_dim,
+                context_features=self.context_dim,
+                hidden_features=self.hidden_dim,
             )
         return transforms.CompositeTransform([linear, base])
 
