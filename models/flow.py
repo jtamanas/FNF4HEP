@@ -1,5 +1,6 @@
 # Define flow
 from nflows import transforms, distributions, flows
+from .transforms import MaskedUMNNAutoregressiveTransform
 
 
 class Flow(flows.Flow):
@@ -10,12 +11,18 @@ class Flow(flows.Flow):
         hidden_dim=32,
         n_layers=1,
         transform_type="MaskedAffineAutoregressiveTransform",
+        num_bins=0,
+        tails=None,
+        tail_bound=1.0
     ):
         self.data_dim = data_dim
         self.context_dim = context_dim
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
         self.transform_type = transform_type
+        self.num_bins = num_bins
+        self.tails = tails
+        self.tail_bound = tail_bound
 
         # Define an invertible transformation.
         transform = transforms.CompositeTransform(
@@ -30,6 +37,21 @@ class Flow(flows.Flow):
 
         if transform_type == "MaskedAffineAutoregressiveTransform":
             base = transforms.MaskedAffineAutoregressiveTransform(
+                features=self.data_dim,
+                context_features=self.context_dim,
+                hidden_features=self.hidden_dim,
+            )
+        elif transform_type == "MaskedPiecewiseQuadraticAutoregressiveTransform":
+            base = transforms.MaskedPiecewiseQuadraticAutoregressiveTransform(
+                features=self.data_dim,
+                context_features=self.context_dim,
+                hidden_features=self.hidden_dim,
+                num_bins=self.num_bins,
+                tails=self.tails,
+                tail_bound=self.tail_bound,
+            )
+        elif transform_type == "MaskedUMNNAutoregressiveTransform":
+            base = MaskedUMNNAutoregressiveTransform(
                 features=self.data_dim,
                 context_features=self.context_dim,
                 hidden_features=self.hidden_dim,

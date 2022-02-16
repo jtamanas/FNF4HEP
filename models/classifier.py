@@ -17,14 +17,20 @@ class BinaryClassifier(nn.Module):
             layers.append(getattr(nn, activation)())
             
         layers.append(nn.Linear(hidden_dim, 1))
+        # layers.append(nn.Sigmoid())
         
         self.model = nn.Sequential(*layers)
         self.criterion = nn.BCEWithLogitsLoss()
         # self.criterion = nn.BCELoss()
         
     def forward(self, x):
-        return self.model(x)
+        return self.model(x).squeeze()
     
     def loss(self, x, labels):
-        y = self.forward(x)
+        y = self.forward(x).squeeze()
         return self.criterion(y, labels)
+
+    def predict(self, x):
+        y = self.forward(x).squeeze()
+        return torch.round(y)
+    

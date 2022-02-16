@@ -49,6 +49,7 @@ def EmpiricalStatisticalDistance(
         for n_step, (data, labels) in enumerate(training_generator):
             optimizer.zero_grad()
             logits = discriminator(data)
+            logits = logits.unsqueeze(1) # add a dimension
             loss = criterion(logits, labels)
             loss.backward()
             optimizer.step()
