@@ -13,7 +13,7 @@ class Flow(flows.Flow):
         transform_type="MaskedAffineAutoregressiveTransform",
         num_bins=0,
         tails=None,
-        tail_bound=1.0
+        tail_bound=1.0,
     ):
         self.data_dim = data_dim
         self.context_dim = context_dim
