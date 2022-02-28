@@ -3,6 +3,7 @@ import torch.nn as nn
 from .flow import Flow
 from .classifier import BinaryClassifier
 from sklearn.metrics import accuracy_score
+from tqdm.auto import trange
 
 
 class BinaryFair(nn.Module):
@@ -11,10 +12,10 @@ class BinaryFair(nn.Module):
         data_dim,
         context_dim=None,
         flow_hidden_dim=32,
-        flow_n_layers=1,
+        flow_n_layers=4,
         flow_transform_type="MaskedAffineAutoregressiveTransform",
         classifier_hidden_dim=32,
-        classifier_n_layers=2,
+        classifier_n_layers=4,
         classifier_activation="ReLU",
         num_bins=0,
         tails=None,
@@ -63,7 +64,7 @@ class BinaryFair(nn.Module):
             tail_bound=self.tail_bound,
         )
 
-        self.classifier = BinaryClassifier(self.embedding_dim) #Fair Classifier
+        self.classifier = BinaryClassifier(self.embedding_dim)  # Fair Classifier
 
     def forward(self, data, context):
         embedding0, embedding1 = self._embed(data_0=data, data_1=data)
@@ -103,14 +104,8 @@ class BinaryFair(nn.Module):
 
     def _fair_embed(self, x0=None, x1=None, context_0=None, context_1=None):
 
-        (
-            z0,
-            _,
-        ) = self.flow0._transform(x0, None)
-        (
-            z1,
-            _,
-        ) = self.flow1._transform(x1, None)
+        (z0, _,) = self.flow0._transform(x0, None)
+        (z1, _,) = self.flow1._transform(x1, None)
 
         f0invz1, _ = self.flow0._transform.inverse(z1, None)
         f1invz0, _ = self.flow1._transform.inverse(z0, None)
@@ -118,21 +113,22 @@ class BinaryFair(nn.Module):
         return f0invz1, f1invz0
 
     def optimal_adversary(
-        self,
-        data_0,
-        data_1,
-        context_0=None,
-        context_1=None,
-        probability_flow=None,
+        self, data_0_loader, data_1_loader, probability_func=None,
     ):
+
+        data_0, _, context_0 = next(iter(data_0_loader))
+        data_1, _, context_1 = next(iter(data_1_loader))
+        context_0 = context_0.unsqueeze(1)  # Should this be data_dim generically?
+        context_1 = context_1.unsqueeze(1)
+
         z0, _, _ = self.flow0._fair_forward(data_0, None)
         z1, _, _ = self.flow1._fair_forward(data_1, None)
 
         logP_Z0_z0, logP_Z1_z0 = self._log_prob(
-            z0, context_0, context_1, probability_flow
+            z0, context_0, context_1, probability_func
         )
         logP_Z0_z1, logP_Z1_z1 = self._log_prob(
-            z1, context_0, context_1, probability_flow
+            z1, context_0, context_1, probability_func
         )
 
         mu_star_0 = logP_Z1_z0 >= logP_Z0_z0
@@ -145,13 +141,13 @@ class BinaryFair(nn.Module):
 
         return stat_dist, mu_star_0, mu_star_1
 
-    def _log_prob(self, z, context_0=None, context_1=None, probability_flow=None):
+    def _log_prob(self, z, context_0=None, context_1=None, probability_func=None):
 
         f0invz, logdetf0invz = self.flow0._transform.inverse(z, None)
         f1invz, logdetf1invz = self.flow1._transform.inverse(z, None)
 
-        log_P_0_z = probability_flow.log_prob(f0invz, context_0)
-        log_P_1_z = probability_flow.log_prob(f1invz, context_1)
+        log_P_0_z = probability_func.log_prob(f0invz, context_0)
+        log_P_1_z = probability_func.log_prob(f1invz, context_1)
 
         logP_Z0_z = log_P_0_z + logdetf0invz
         logP_Z1_z = log_P_1_z + logdetf1invz
@@ -159,7 +155,7 @@ class BinaryFair(nn.Module):
         return logP_Z0_z, logP_Z1_z
 
     def _KL_loss(
-        self, data_0, data_1, context_0=None, context_1=None, probability_flow=None
+        self, data_0, data_1, context_0=None, context_1=None, probability_func=None
     ):
         """
         data_0: [batch_size, data_dim]
@@ -174,10 +170,10 @@ class BinaryFair(nn.Module):
         z1, _, _ = self.flow1._fair_forward(data_1, None)
 
         logP_Z0_z0, logP_Z1_z0 = self._log_prob(
-            z0, context_0, context_1, probability_flow
+            z0, context_0, context_1, probability_func
         )
         logP_Z0_z1, logP_Z1_z1 = self._log_prob(
-            z1, context_0, context_1, probability_flow
+            z1, context_0, context_1, probability_func
         )
 
         L_0 = logP_Z0_z0 - logP_Z1_z0
@@ -205,7 +201,7 @@ class BinaryFair(nn.Module):
         context_0=None,
         context_1=None,
         return_all_losses=False,
-        probability_flow=None,
+        probability_func=None,
     ):
         if self.gamma == 0:
             embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
@@ -215,7 +211,7 @@ class BinaryFair(nn.Module):
                 self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
             )
 
-        L_KL = self._KL_loss(data_0, data_1, context_0, context_1, probability_flow)
+        L_KL = self._KL_loss(data_0, data_1, context_0, context_1, probability_func)
 
         embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
 
@@ -225,3 +221,45 @@ class BinaryFair(nn.Module):
         if return_all_losses:
             return L_KL, L_clf, L_total
         return L_total
+
+    def fit(
+        self,
+        data_0_loader,
+        data_1_loader,
+        probability_func,
+        n_steps=5000,
+        lr=1e-3,
+        weight_decay=1e-4,
+    ):
+        optimizer = torch.optim.Adam(
+            self.parameters(), lr=lr, weight_decay=weight_decay
+        )
+        self.train()
+        fair_classifier_loss = []
+        for n_step in trange(n_steps):
+            data_0, labels_0, context_0 = next(iter(data_0_loader))
+            data_1, labels_1, context_1 = next(iter(data_1_loader))
+
+            context_0 = context_0.unsqueeze(
+                1
+            )  # ? Does this work for N-dim data? Should this be data_dim?
+            context_1 = context_1.unsqueeze(1)
+
+            optimizer.zero_grad()
+
+            _, _, loss = self.loss(
+                data_0,
+                data_1,
+                labels_0=labels_0,
+                labels_1=labels_1,
+                context_0=context_0,
+                context_1=context_1,
+                return_all_losses=True,
+                probability_func=probability_func,
+            )
+
+            loss.backward()
+            fair_classifier_loss.append(loss.item())
+            optimizer.step()
+        self.eval()
+
