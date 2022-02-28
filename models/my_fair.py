@@ -263,3 +263,24 @@ class BinaryFair(nn.Module):
             optimizer.step()
         self.eval()
 
+    def adversarial_accuracy(self, data_0_loader, data_1_loader, adv_classifier):
+
+        data_0, _, context_0 = next(iter(data_0_loader))
+        data_1, _, context_1 = next(iter(data_1_loader))
+
+        embedding_0, embedding_1 = self._embed(data_0, data_1)
+
+        embedded_data_test = torch.cat([embedding_0, embedding_1], dim=0)
+        embedded_context_test = torch.cat([context_0, context_1], dim=0)
+
+        acc = (
+            (
+                (adv_classifier.forward(embedded_data_test) > 0.0)
+                == embedded_context_test
+            )
+            .float()
+            .mean()
+            .item()
+        )
+
+        return acc
