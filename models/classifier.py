@@ -41,7 +41,6 @@ class BinaryClassifier(nn.Module):
 
         self.train()
         classifier_loss = []
-        print("Training binary classifier...")
         for step in trange(n_steps):
             data, labels = next(iter(data_loader_train))
 
