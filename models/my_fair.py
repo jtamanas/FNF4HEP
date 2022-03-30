@@ -84,10 +84,15 @@ class BinaryFair(nn.Module):
         embedding1 = None
 
         if data_0 is not None:
-            embedding0, logabsdet0, _ = self.flow0._fair_forward(data_0, context=context_0)
+            embedding0, logabsdet0, _ = self.flow0._fair_forward(
+                data_0, context=context_0
+            )
+            # ? should these be _fair_forward or just _transform?
 
         if data_1 is not None:
-            embedding1, logabsdet1, _ = self.flow0._fair_forward(data_1, context=context_1)
+            embedding1, logabsdet1, _ = self.flow0._fair_forward(
+                data_1, context=context_1
+            )
 
         return embedding0, embedding1
 
