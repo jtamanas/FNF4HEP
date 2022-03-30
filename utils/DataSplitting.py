@@ -6,6 +6,8 @@ from torch.utils.data import TensorDataset
 params = {"batch_size": 128, "shuffle": True}
 
 # Useful functions for generating data and generators
+
+# todo: Want to be able to generate all high res
 def gen_galton_data(
     alpha,
     Ntot_sims,
@@ -15,6 +17,7 @@ def gen_galton_data(
     odds_skew=0.55,
     n_dims=1,
     sigma=0.4,
+    all_high_res=False,
 ):
     """
     labels: 0 = skewed, 1 = unskewed
@@ -32,7 +35,7 @@ def gen_galton_data(
         sigma=sigma,
     )
     g_high_unskew = Galton(
-        n_steps=n_high_steps, odds_right=0.5, n_dims=n_dims, noise=True, sigma=sigma
+        n_steps=n_high_steps, odds_right=0.5, n_dims=n_dims, noise=True, sigma=sigma,
     )
     g_low_skew = Galton(
         n_steps=n_low_steps,
@@ -45,18 +48,29 @@ def gen_galton_data(
         n_steps=n_low_steps, odds_right=0.5, n_dims=n_dims, noise=True, sigma=sigma
     )
 
-    pos_high_skew_arr = np.array(
-        [g_high_skew.simulate(n_balls=n_balls) for _ in range(Nsims_high_skew)]
-    )
-    pos_high_unskew_arr = np.array(
-        [g_high_unskew.simulate(n_balls=n_balls) for _ in range(Nsims_high_unskew)]
-    )
-    pos_low_skew_arr = np.array(
-        [g_low_skew.simulate(n_balls=n_balls) for _ in range(Nsims_high_unskew)]
-    )
-    pos_low_unskew_arr = np.array(
-        [g_low_unskew.simulate(n_balls=n_balls) for _ in range(Nsims_high_skew)]
-    )
+    if all_high_res:
+        pos_high_skew_arr = np.array(
+            [g_high_skew.simulate(n_balls=n_balls) for _ in range(Ntot_sims)]
+        )
+        pos_high_unskew_arr = np.array(
+            [g_high_unskew.simulate(n_balls=n_balls) for _ in range(Ntot_sims)]
+        )
+        pos_low_skew_arr = np.array([])
+        pos_low_unskew_arr = np.array([])
+
+    else:
+        pos_high_skew_arr = np.array(
+            [g_high_skew.simulate(n_balls=n_balls) for _ in range(Nsims_high_skew)]
+        )
+        pos_high_unskew_arr = np.array(
+            [g_high_unskew.simulate(n_balls=n_balls) for _ in range(Nsims_high_unskew)]
+        )
+        pos_low_skew_arr = np.array(
+            [g_low_skew.simulate(n_balls=n_balls) for _ in range(Nsims_high_unskew)]
+        )
+        pos_low_unskew_arr = np.array(
+            [g_low_unskew.simulate(n_balls=n_balls) for _ in range(Nsims_high_skew)]
+        )
 
     data = torch.cat(
         (
@@ -224,10 +238,16 @@ def get_embedding_data(
     )
 
     embedding_0_train, embedding_1_train = fair._embed(
-        data_0_train, data_1_train, context_0_train.unsqueeze(1), context_1_train.unsqueeze(1)
+        data_0_train,
+        data_1_train,
+        context_0_train.unsqueeze(1),
+        context_1_train.unsqueeze(1),
     )
     embedding_0_test, embedding_1_test = fair._embed(
-        data_0_test, data_1_test, context_0_test.unsqueeze(1), context_1_test.unsqueeze(1)
+        data_0_test,
+        data_1_test,
+        context_0_test.unsqueeze(1),
+        context_1_test.unsqueeze(1),
     )
 
     embedding_data_train = torch.cat(
