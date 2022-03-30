@@ -53,35 +53,24 @@ class BinaryFair(nn.Module):
             tail_bound=self.tail_bound,
         )
 
-        self.flow1 = Flow(
-            data_dim=self.data_dim,
-            context_dim=self.context_dim,
-            hidden_dim=self.flow_hidden_dim,
-            n_layers=self.flow_n_layers,
-            transform_type=self.flow_transform_type,
-            num_bins=self.num_bins,
-            tails=self.tails,
-            tail_bound=self.tail_bound,
-        )
-
         self.classifier = BinaryClassifier(self.embedding_dim)  # Fair Classifier
 
-    def forward(self, data, context):
-        embedding0, embedding1 = self._embed(data_0=data, data_1=data)
+    # def forward(self, data, context):
+    #     embedding0, embedding1 = self._embed(data_0=data, data_1=data)
 
-        embeddings = embedding0 * (context == 0) + embedding1 * (context == 1)
-        label_pred = self.classifier(embeddings).sigmoid()
+    #     embeddings = embedding0 * (context == 0) + embedding1 * (context == 1)
+    #     label_pred = self.classifier(embeddings).sigmoid()
 
-        return label_pred
+    #     return label_pred
 
     def classifier_accuracy(self, embd, labels):
         label_pred = self.classifier(embd).sigmoid()
         bin_pred = (label_pred > 0.5).float()
         return accuracy_score(bin_pred, labels)
 
-    def sample(self, context=None):
-        samples_0 = self.flow0.sample(num_samples=context.shape[0])
-        samples_1 = self.flow1.sample(num_samples=context.shape[0])
+    def sample(self, context_0=None, context_1=None):
+        samples_0 = self.flow0.sample(num_samples=context.shape[0], context=context_0)
+        samples_1 = self.flow0.sample(num_samples=context.shape[0], context=context_1)
 
         if context is not None:
             context = context.bool()
@@ -95,22 +84,22 @@ class BinaryFair(nn.Module):
         embedding1 = None
 
         if data_0 is not None:
-            embedding0, logabsdet0 = self.flow0._transform(data_0, context=None)
+            embedding0, logabsdet0, _ = self.flow0._fair_forward(data_0, context=context_0)
 
         if data_1 is not None:
-            embedding1, logabsdet1 = self.flow1._transform(data_1, context=None)
+            embedding1, logabsdet1, _ = self.flow0._fair_forward(data_1, context=context_1)
 
         return embedding0, embedding1
 
-    def _fair_embed(self, x0=None, x1=None, context_0=None, context_1=None):
+    # def _fair_embed(self, x0=None, x1=None, context_0=None, context_1=None):
 
-        (z0, _,) = self.flow0._transform(x0, None)
-        (z1, _,) = self.flow1._transform(x1, None)
+    #     (z0, _,) = self.flow0._transform(x0, context_0)
+    #     (z1, _,) = self.flow0._transform(x1, context_1)
 
-        f0invz1, _ = self.flow0._transform.inverse(z1, None)
-        f1invz0, _ = self.flow1._transform.inverse(z0, None)
+    #     f0invz1, _ = self.flow0._transform.inverse(z1, context_0)
+    #     f1invz0, _ = self.flow0._transform.inverse(z0, context_1)
 
-        return f0invz1, f1invz0
+    #     return f0invz1, f1invz0
 
     def optimal_adversary(
         self, data_0_loader, data_1_loader, probability_func=None,
@@ -121,8 +110,8 @@ class BinaryFair(nn.Module):
         context_0 = context_0.unsqueeze(1)  # Should this be data_dim generically?
         context_1 = context_1.unsqueeze(1)
 
-        z0, _, _ = self.flow0._fair_forward(data_0, None)
-        z1, _, _ = self.flow1._fair_forward(data_1, None)
+        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
+        z1, _, _ = self.flow0._fair_forward(data_1, context_1)
 
         logP_Z0_z0, logP_Z1_z0 = self._log_prob(
             z0, context_0, context_1, probability_func
@@ -143,8 +132,8 @@ class BinaryFair(nn.Module):
 
     def _log_prob(self, z, context_0=None, context_1=None, probability_func=None):
 
-        f0invz, logdetf0invz = self.flow0._transform.inverse(z, None)
-        f1invz, logdetf1invz = self.flow1._transform.inverse(z, None)
+        f0invz, logdetf0invz = self.flow0._transform.inverse(z, context_0)
+        f1invz, logdetf1invz = self.flow0._transform.inverse(z, context_1)
 
         log_P_0_z = probability_func.log_prob(f0invz, context_0)
         log_P_1_z = probability_func.log_prob(f1invz, context_1)
@@ -166,8 +155,8 @@ class BinaryFair(nn.Module):
         Note in the paper, they have equal numbers of each class and then take
         the mean after adding. Here we'll take the mean first and then add scalars
         """
-        z0, _, _ = self.flow0._fair_forward(data_0, None)
-        z1, _, _ = self.flow1._fair_forward(data_1, None)
+        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
+        z1, _, _ = self.flow0._fair_forward(data_1, context_1)
 
         logP_Z0_z0, logP_Z1_z0 = self._log_prob(
             z0, context_0, context_1, probability_func
@@ -240,9 +229,8 @@ class BinaryFair(nn.Module):
             data_0, labels_0, context_0 = next(iter(data_0_loader))
             data_1, labels_1, context_1 = next(iter(data_1_loader))
 
-            context_0 = context_0.unsqueeze(
-                1
-            )  # ? Does this work for N-dim data? Should this be data_dim?
+            context_0 = context_0.unsqueeze(1)
+            # ? Does this work for N-dim data? Should this be data_dim?
             context_1 = context_1.unsqueeze(1)
 
             optimizer.zero_grad()

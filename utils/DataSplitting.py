@@ -223,8 +223,12 @@ def get_embedding_data(
         data_train, labels_train, context_train, data_test, labels_test, context_test
     )
 
-    embedding_0_train, embedding_1_train = fair._embed(data_0_train, data_1_train)
-    embedding_0_test, embedding_1_test = fair._embed(data_0_test, data_1_test)
+    embedding_0_train, embedding_1_train = fair._embed(
+        data_0_train, data_1_train, context_0_train.unsqueeze(1), context_1_train.unsqueeze(1)
+    )
+    embedding_0_test, embedding_1_test = fair._embed(
+        data_0_test, data_1_test, context_0_test.unsqueeze(1), context_1_test.unsqueeze(1)
+    )
 
     embedding_data_train = torch.cat(
         [embedding_0_train.detach(), embedding_1_train.detach()], dim=0
