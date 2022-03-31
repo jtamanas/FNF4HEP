@@ -166,6 +166,11 @@ class BinaryFair(nn.Module):
         # z0, _, _ = self.flow0._fair_forward(data_0, context_0)
         # z1, _, _ = self.flow0._fair_forward(data_1, context_1)
 
+        # ? Do I need to use fair forward which uses the embedding net? Or does
+        # ? transform do this as well?
+        # I think just _transform is fine because the embedding net is just
+        # identity by default. Maybe for forward compatability tho?
+
         z0, _ = self.flow0._transform(data_0, context_0)
         z1, _ = self.flow0._transform(data_1, context_1)
 
@@ -265,6 +270,8 @@ class BinaryFair(nn.Module):
             fair_classifier_loss.append(loss.item())
             optimizer.step()
         self.eval()
+
+        return fair_classifier_loss
 
     def adversarial_accuracy(self, data_0_loader, data_1_loader, adv_classifier):
 
