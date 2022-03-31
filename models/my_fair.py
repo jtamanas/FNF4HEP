@@ -84,15 +84,18 @@ class BinaryFair(nn.Module):
         embedding1 = None
 
         if data_0 is not None:
-            embedding0, logabsdet0, _ = self.flow0._fair_forward(
-                data_0, context=context_0
-            )
+            # embedding0, logabsdet0, _ = self.flow0._fair_forward(
+            #     data_0, context=context_0
+            # )
+            embedding0, logabsdet0 = self.flow0._transform(data_0, context=context_0)
             # ? should these be _fair_forward or just _transform?
 
+        # if data_1 is not None:
+        #     embedding1, logabsdet1, _ = self.flow0._fair_forward(
+        #         data_1, context=context_1
+        #     )
         if data_1 is not None:
-            embedding1, logabsdet1, _ = self.flow0._fair_forward(
-                data_1, context=context_1
-            )
+            embedding1, logabsdet1 = self.flow0._transform(data_1, context=context_1)
 
         return embedding0, embedding1
 
@@ -160,8 +163,11 @@ class BinaryFair(nn.Module):
         Note in the paper, they have equal numbers of each class and then take
         the mean after adding. Here we'll take the mean first and then add scalars
         """
-        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
-        z1, _, _ = self.flow0._fair_forward(data_1, context_1)
+        # z0, _, _ = self.flow0._fair_forward(data_0, context_0)
+        # z1, _, _ = self.flow0._fair_forward(data_1, context_1)
+
+        z0, _ = self.flow0._transform(data_0, context_0)
+        z1, _ = self.flow0._transform(data_1, context_1)
 
         logP_Z0_z0, logP_Z1_z0 = self._log_prob(
             z0, context_0, context_1, probability_func
@@ -179,7 +185,7 @@ class BinaryFair(nn.Module):
         """
         Not yet sure how to handle the context here.
         """
-        labels = torch.cat([labels_0, labels_1])
+        labels = torch.cat([labels_0, labels_1]).squeeze()
 
         embds = torch.cat([embd_0, embd_1])
         label_preds = self.classifier.forward(embds)
@@ -234,9 +240,13 @@ class BinaryFair(nn.Module):
             data_0, labels_0, context_0 = next(iter(data_0_loader))
             data_1, labels_1, context_1 = next(iter(data_1_loader))
 
-            context_0 = context_0.unsqueeze(1)
-            # ? Does this work for N-dim data? Should this be data_dim?
-            context_1 = context_1.unsqueeze(1)
+            if len(context_0.shape) == 1:
+                context_0 = context_0.unsqueeze(1)
+                context_1 = context_1.unsqueeze(1)
+
+            # context_0 = context_0.unsqueeze(1)
+            # # ? Does this work for N-dim data? Should this be data_dim?
+            # context_1 = context_1.unsqueeze(1)
 
             optimizer.zero_grad()
 
