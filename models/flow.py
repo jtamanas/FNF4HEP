@@ -1,6 +1,7 @@
 # Define flow
 from nflows import transforms, distributions, flows
 from .transforms import MaskedUMNNAutoregressiveTransform
+from .classifier import BinaryClassifier
 
 
 class Flow(flows.Flow):
@@ -14,7 +15,9 @@ class Flow(flows.Flow):
         num_bins=0,
         tails=None,
         tail_bound=1.0,
+        gamma=0.5,
     ):
+
         self.data_dim = data_dim
         self.context_dim = context_dim
         self.hidden_dim = hidden_dim
@@ -31,6 +34,9 @@ class Flow(flows.Flow):
         base_distribution = distributions.StandardNormal(shape=[data_dim])
 
         super().__init__(transform=transform, distribution=base_distribution)
+
+        self.classifier = BinaryClassifier(data_dim=data_dim)
+        self.gamma = gamma
 
     def create_transform(self, transform_type):
         linear = transforms.ReversePermutation(features=self.data_dim)
@@ -69,3 +75,11 @@ class Flow(flows.Flow):
         log_prob = self._distribution.log_prob(noise, context=embedded_context)
         # data logprob is log_prob + logabsdet
         return noise, log_prob, logabsdet
+
+    def prob_flow_loss(self, data, labels, context):
+
+        mle_loss = -self.log_prob(inputs=data, context=context).mean()
+        label_loss = self.classifier.loss(data, labels).mean()
+
+        return self.gamma * mle_loss + (1 - self.gamma) * label_loss
+
