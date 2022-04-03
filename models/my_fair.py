@@ -4,6 +4,7 @@ from .flow import Flow
 from .classifier import BinaryClassifier
 from sklearn.metrics import accuracy_score
 from tqdm.auto import trange
+import numpy as np
 
 
 class BinaryFair(nn.Module):
@@ -115,8 +116,10 @@ class BinaryFair(nn.Module):
 
         data_0, _, context_0 = next(iter(data_0_loader))
         data_1, _, context_1 = next(iter(data_1_loader))
-        context_0 = context_0.unsqueeze(1)  # Should this be data_dim generically?
-        context_1 = context_1.unsqueeze(1)
+
+        if len(context_0.shape) == 1:
+            context_0 = context_0.unsqueeze(1)
+            context_1 = context_1.unsqueeze(1)
 
         z0, _, _ = self.flow0._fair_forward(data_0, context_0)
         z1, _, _ = self.flow0._fair_forward(data_1, context_1)
@@ -151,6 +154,8 @@ class BinaryFair(nn.Module):
 
         return logP_Z0_z, logP_Z1_z
 
+        # probability flow loss + classifier loss
+
     def _KL_loss(
         self, data_0, data_1, context_0=None, context_1=None, probability_func=None
     ):
@@ -183,6 +188,8 @@ class BinaryFair(nn.Module):
 
         L_0 = logP_Z0_z0 - logP_Z1_z0
         L_1 = logP_Z1_z1 - logP_Z0_z1
+
+        # self._log_prob(z, context, probability_func)
 
         return (L_0 + L_1).mean()
 
@@ -268,6 +275,9 @@ class BinaryFair(nn.Module):
 
             loss.backward()
             fair_classifier_loss.append(loss.item())
+            if np.isnan(loss.item()):
+                print("Loss is nan")
+                break
             optimizer.step()
         self.eval()
 
