@@ -69,6 +69,7 @@ class BinaryClassifier(nn.Module):
                 if loss_val.item() < best_loss_val:
                     best_loss_val = loss_val.item()
                     best_params = copy.deepcopy(self.state_dict())
+                    patience_count = 0
                 else:
                     patience_count += 1
 
