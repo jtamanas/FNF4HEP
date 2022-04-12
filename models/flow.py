@@ -2,6 +2,9 @@
 from nflows import transforms, distributions, flows
 from .transforms import MaskedUMNNAutoregressiveTransform
 from .classifier import BinaryClassifier
+from tqdm.auto import trange
+import torch
+import copy
 
 
 class Flow(flows.Flow):
@@ -78,8 +81,53 @@ class Flow(flows.Flow):
 
     def prob_flow_loss(self, data, labels, context):
 
+        # Make sure labels and context are is correct shape
+        if len(context.shape) == 1:
+            context = context.unsqueeze(1)
+        if len(labels.shape) != 1:
+            labels = labels.squeeze()
+
         mle_loss = -self.log_prob(inputs=data, context=context).mean()
         label_loss = self.classifier.loss(data, labels).mean()
 
         return self.gamma * mle_loss + (1 - self.gamma) * label_loss
+
+    def fit_prob_flow(
+        self,
+        data_loader_train,
+        data_loader_val,
+        n_steps=int(1e4),
+        lr=1e-4,
+        weight_decay=1e-4,
+        num_epochs=5,
+    ):
+
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=lr, weight_decay=weight_decay
+        )
+
+        val_loss = []
+        self.train()
+        for n_step in trange(n_steps):
+            data, labels, context = next(iter(data_loader_train))
+
+            optimizer.zero_grad()
+            loss = self.prob_flow_loss(data, labels, context)
+
+            if (n_step + 1) % (n_steps / num_epochs) == 0:
+                data_val, labels_val, context_val = next(iter(data_loader_val))
+                loss_val = self.prob_flow_loss(data_val, labels_val, context_val)
+                val_loss.append(loss_val.item())
+
+                if loss_val.item() < best_loss_val:
+                    best_loss_val = loss_val.item()
+                    best_params = copy.deepcopy(self.state_dict())
+                    print(best_loss_val)
+
+            loss.backward()
+            optimizer.step()
+        self.eval()
+        self.load_state_dict(best_params)
+
+        return val_loss
 

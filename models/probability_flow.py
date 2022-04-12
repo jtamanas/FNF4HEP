@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from .flow import Flow
 from .classifier import BinaryClassifier
+from tqdm.auto import trange
+import copy
 
 
 class ProbabilityFlow(nn.Module):
@@ -11,7 +13,7 @@ class ProbabilityFlow(nn.Module):
         context_dim=None,
         flow_hidden_dim=32,
         flow_n_layers=1,
-        flow_transform_type="MaskedAffineAutoregressiveTransform"
+        flow_transform_type="MaskedAffineAutoregressiveTransform",
     ):
         super().__init__()
 
@@ -42,7 +44,7 @@ class ProbabilityFlow(nn.Module):
     def sample(self, context=None):
         samples_0 = self.flow0.sample(num_samples=context.shape[0])
         samples_1 = self.flow1.sample(num_samples=context.shape[0])
-        
+
         if context is not None:
             context = context.bool()
             samples = samples_0 * (~context) + samples_1 * context
@@ -61,7 +63,6 @@ class ProbabilityFlow(nn.Module):
             embedding1, logabsdet1 = self.flow1._transform(data_1, context=context_1)
 
         return embedding0, embedding1
-
 
     def loss(
         self,
@@ -83,3 +84,51 @@ class ProbabilityFlow(nn.Module):
         # if return_all_losses:
         #     return L_KL, L_clf, L_total
         return L_total
+
+    def fit(
+        self,
+        data_loader_train,
+        data_loader_val,
+        n_steps=int(1e4),
+        lr=1e-4,
+        weight_decay=1e-4,
+        num_epochs=5,
+    ):
+
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=lr, weight_decay=weight_decay
+        )
+
+        val_loss = []
+        self.train()
+        for n_step in trange(n_steps):
+            data, labels, context = next(iter(data_loader_train))
+            labels = labels.squeeze()
+
+            # Make sure labels and context are is correct shape
+            if len(context.shape) == 1:
+                context = context.unsqueeze(1)
+            if len(labels.shape) == 1:
+                labels = labels.unsqueeze(1)
+
+            optimizer.zero_grad()
+            loss = self.prob_flow_loss(data, labels, context)
+
+            if (n_step + 1) % (n_steps / num_epochs) == 0:
+                print(n_step)
+                data_val, labels_val, context_val = next(iter(data_loader_val))
+                loss_val = self.prob_flow_loss(data_val, labels_val, context_val)
+                val_loss.append(loss_val.item())
+
+                if loss_val.item() < best_loss_val:
+                    best_loss_val = loss_val.item()
+                    best_params = copy.deepcopy(self.state_dict())
+                    print(best_loss_val)
+
+            loss.backward()
+            optimizer.step()
+        self.eval()
+        self.load_state_dict(best_params)
+
+        return val_loss
+
