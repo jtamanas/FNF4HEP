@@ -5,6 +5,7 @@ from .classifier import BinaryClassifier
 from tqdm.auto import trange
 import torch
 import copy
+import numpy as np
 
 
 class Flow(flows.Flow):
@@ -96,25 +97,28 @@ class Flow(flows.Flow):
         self,
         data_loader_train,
         data_loader_val,
-        n_steps=int(1e4),
         lr=1e-4,
         weight_decay=1e-4,
-        num_epochs=5,
+        max_num_epochs=100,
+        n_steps_per_epoch=int(5e2),
+        patience=10,
     ):
 
         optimizer = torch.optim.AdamW(
             self.parameters(), lr=lr, weight_decay=weight_decay
         )
 
+        best_loss_val = np.inf
+        patience_count = 0
         val_loss = []
         self.train()
-        for n_step in trange(n_steps):
+        for n_step in trange(n_steps_per_epoch * max_num_epochs):
             data, labels, context = next(iter(data_loader_train))
 
             optimizer.zero_grad()
             loss = self.prob_flow_loss(data, labels, context)
 
-            if (n_step + 1) % (n_steps / num_epochs) == 0:
+            if (n_step + 1) % (n_steps_per_epoch) == 0:
                 data_val, labels_val, context_val = next(iter(data_loader_val))
                 loss_val = self.prob_flow_loss(data_val, labels_val, context_val)
                 val_loss.append(loss_val.item())
@@ -122,7 +126,16 @@ class Flow(flows.Flow):
                 if loss_val.item() < best_loss_val:
                     best_loss_val = loss_val.item()
                     best_params = copy.deepcopy(self.state_dict())
-                    print(best_loss_val)
+                else:
+                    patience_count += 1
+
+                if patience_count >= patience:
+                    print(
+                        "Early stopping reached after {} epochs".format(
+                            int((n_step + 1) / n_steps_per_epoch)
+                        )
+                    )
+                    break
 
             loss.backward()
             optimizer.step()

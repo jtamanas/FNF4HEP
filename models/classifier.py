@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from tqdm.auto import trange
+import numpy as np
+import copy
 
 
 class BinaryClassifier(nn.Module):
@@ -33,25 +35,56 @@ class BinaryClassifier(nn.Module):
         y = self.forward(x).squeeze()
         return torch.round(y)
 
-    def fit(self, data_loader_train, n_steps=int(1e4), lr=1e-4, weight_decay=1e-4):
+    def fit(
+        self,
+        data_loader_train,
+        data_loader_val,
+        lr=1e-4,
+        weight_decay=1e-4,
+        max_num_epochs=100,
+        n_steps_per_epoch=int(5e2),
+        patience=10,
+    ):
 
         optimizer = torch.optim.AdamW(
             self.parameters(), lr=lr, weight_decay=weight_decay
         )
 
+        best_loss_val = np.inf
+        patience_count = 0
+        val_loss = []
+
         self.train()
-        classifier_loss = []
-        for step in trange(n_steps):
+        for step in trange(n_steps_per_epoch * max_num_epochs):
             data, labels = next(iter(data_loader_train))
 
             optimizer.zero_grad()
             label_loss = self.loss(data, labels).mean()
-            classifier_loss.append(label_loss.item())
+
+            if (step + 1) % (n_steps_per_epoch) == 0:
+                data_val, labels_val = next(iter(data_loader_val))
+                loss_val = self.loss(data_val, labels_val).mean()
+                val_loss.append(loss_val.item())
+
+                if loss_val.item() < best_loss_val:
+                    best_loss_val = loss_val.item()
+                    best_params = copy.deepcopy(self.state_dict())
+                else:
+                    patience_count += 1
+
+                if patience_count >= patience:
+                    print(
+                        "Early stopping reached after {} epochs".format(
+                            int((step + 1) / n_steps_per_epoch)
+                        )
+                    )
+                    break
+
             label_loss.backward()
             optimizer.step()
 
-            # TODO: add validation set
         self.eval()
+        self.load_state_dict(best_params)
 
     def accuracy(self, data_test, labels_test):
         return ((self.forward(data_test) > 0.0) == labels_test).float().mean().item()

@@ -5,6 +5,7 @@ from .classifier import BinaryClassifier
 from tqdm.auto import trange
 import copy
 
+#! Not currently using this class I believe
 
 class ProbabilityFlow(nn.Module):
     def __init__(
