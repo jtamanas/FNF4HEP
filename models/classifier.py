@@ -83,7 +83,12 @@ class BinaryClassifier(nn.Module):
 
             label_loss.backward()
             optimizer.step()
-
+        if step == n_steps_per_epoch * max_num_epochs - 1:
+            print(
+                "Training finished after {} epochs (max_num_epochs)".format(
+                    max_num_epochs
+                )
+            )
         self.eval()
         self.load_state_dict(best_params)
 
