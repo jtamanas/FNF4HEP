@@ -91,7 +91,9 @@ class Flow(flows.Flow):
         mle_loss = -self.log_prob(inputs=data, context=context).mean()
         label_loss = self.classifier.loss(data, labels).mean()
 
-        return self.gamma * mle_loss + (1 - self.gamma) * label_loss
+        tot_loss = self.gamma * mle_loss + (1.0 - self.gamma) * label_loss
+
+        return tot_loss, mle_loss, label_loss
 
     def fit_prob_flow(
         self,
@@ -110,21 +112,27 @@ class Flow(flows.Flow):
 
         best_loss_val = np.inf
         patience_count = 0
-        val_loss = []
+        val_loss_tot = []
+        val_loss_mle = []
+        val_loss_label = []
+
         self.train()
         for n_step in trange(n_steps_per_epoch * max_num_epochs):
             data, labels, context = next(iter(data_loader_train))
 
             optimizer.zero_grad()
-            loss = self.prob_flow_loss(data, labels, context)
+            tot_loss, _, _ = self.prob_flow_loss(data, labels, context)
 
             if (n_step + 1) % (n_steps_per_epoch) == 0:
                 data_val, labels_val, context_val = next(iter(data_loader_val))
-                loss_val = self.prob_flow_loss(data_val, labels_val, context_val)
-                val_loss.append(loss_val.item())
+                tot_loss_val, mle_loss_val, label_loss_val = self.prob_flow_loss(data_val, labels_val, context_val)
+                val_loss_tot.append(tot_loss_val.item())
+                val_loss_mle.append(mle_loss_val.item())
+                val_loss_label.append(label_loss_val.item())
 
-                if loss_val.item() < best_loss_val:
-                    best_loss_val = loss_val.item()
+
+                if tot_loss_val.item() < best_loss_val:
+                    best_loss_val = tot_loss_val.item()
                     best_params = copy.deepcopy(self.state_dict())
                     patience_count = 0
                 else:
@@ -138,10 +146,10 @@ class Flow(flows.Flow):
                     )
                     break
 
-            loss.backward()
+            tot_loss.backward()
             optimizer.step()
         self.eval()
         self.load_state_dict(best_params)
 
-        return val_loss
+        return val_loss_tot, val_loss_mle, val_loss_label
 
