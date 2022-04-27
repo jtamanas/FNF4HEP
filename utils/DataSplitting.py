@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from torch.utils.data import TensorDataset
 
-params = {"batch_size": 128, "shuffle": True}
+params = {"batch_size": 32, "shuffle": True}
 
 # Useful functions for generating data and generators
 
@@ -107,12 +107,21 @@ def gen_galton_data(
 
 
 def split_data_by_context(
-    data_train, labels_train, context_train, data_test, labels_test, context_test
+    data_train,
+    labels_train,
+    context_train,
+    data_val,
+    labels_val,
+    context_val,
+    data_test,
+    labels_test,
+    context_test,
 ):
     """
     Splits data into two groups, based on context (sensitive attribute) 
     """
     idx_0_train = context_train == 0
+    idx_0_val = context_val == 0
     idx_0_test = context_test == 0
 
     data_0_train = data_train[idx_0_train]
@@ -121,6 +130,13 @@ def split_data_by_context(
     labels_1_train = labels_train[~idx_0_train]
     context_0_train = context_train[idx_0_train]
     context_1_train = context_train[~idx_0_train]
+
+    data_0_val = data_val[idx_0_val]
+    data_1_val = data_val[~idx_0_val]
+    labels_0_val = labels_val[idx_0_val]
+    labels_1_val = labels_val[~idx_0_val]
+    context_0_val = context_val[idx_0_val]
+    context_1_val = context_val[~idx_0_val]
 
     data_0_test = data_test[idx_0_test]
     data_1_test = data_test[~idx_0_test]
@@ -136,6 +152,12 @@ def split_data_by_context(
         labels_1_train,
         context_0_train,
         context_1_train,
+        data_0_val,
+        data_1_val,
+        labels_0_val,
+        labels_1_val,
+        context_0_val,
+        context_1_val,
         data_0_test,
         data_1_test,
         labels_0_test,
@@ -146,7 +168,15 @@ def split_data_by_context(
 
 
 def get_fair_generators(
-    data_train, labels_train, context_train, data_test, labels_test, context_test
+    data_train,
+    labels_train,
+    context_train,
+    data_val,
+    labels_val,
+    context_val,
+    data_test,
+    labels_test,
+    context_test,
 ):
     """
     returns testing and training generators for the fair normalizing flows
@@ -159,6 +189,12 @@ def get_fair_generators(
         labels_1_train,
         context_0_train,
         context_1_train,
+        data_0_val,
+        data_1_val,
+        labels_0_val,
+        labels_1_val,
+        context_0_val,
+        context_1_val,
         data_0_test,
         data_1_test,
         labels_0_test,
@@ -166,7 +202,15 @@ def get_fair_generators(
         context_0_test,
         context_1_test,
     ) = split_data_by_context(
-        data_train, labels_train, context_train, data_test, labels_test, context_test
+        data_train,
+        labels_train,
+        context_train,
+        data_val,
+        labels_val,
+        context_val,
+        data_test,
+        labels_test,
+        context_test,
     )
 
     label_0_set = TensorDataset(data_0_train, labels_0_train, context_0_train)
@@ -174,6 +218,12 @@ def get_fair_generators(
 
     label_1_set = TensorDataset(data_1_train, labels_1_train, context_1_train)
     label_1_train_generator = torch.utils.data.DataLoader(label_1_set, **params)
+
+    label_0_val_set = TensorDataset(data_0_val, labels_0_val, context_0_val)
+    label_0_val_generator = torch.utils.data.DataLoader(label_0_val_set, **params)
+
+    label_1_val_set = TensorDataset(data_1_val, labels_1_val, context_1_val)
+    label_1_val_generator = torch.utils.data.DataLoader(label_1_val_set, **params)
 
     label_0_test_set = TensorDataset(
         data_0_test, labels_0_test, context_0_test
@@ -190,6 +240,8 @@ def get_fair_generators(
     return (
         label_0_train_generator,
         label_1_train_generator,
+        label_0_val_generator,
+        label_1_val_generator,
         label_0_test_generator,
         label_1_test_generator,
     )

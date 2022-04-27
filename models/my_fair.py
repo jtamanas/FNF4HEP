@@ -5,6 +5,7 @@ from .classifier import BinaryClassifier
 from sklearn.metrics import accuracy_score
 from tqdm.auto import trange
 import numpy as np
+import copy
 
 
 class BinaryFair(nn.Module):
@@ -236,29 +237,33 @@ class BinaryFair(nn.Module):
 
     def fit(
         self,
-        data_0_loader,
-        data_1_loader,
+        data_0_loader_train,
+        data_1_loader_train,
+        data_0_loader_val,
+        data_1_loader_val,
         probability_func,
-        n_steps=5000,
         lr=1e-3,
         weight_decay=1e-4,
+        max_num_epochs=100,
+        n_steps_per_epoch=int(5e2),
+        patience=10,
     ):
         optimizer = torch.optim.Adam(
             self.parameters(), lr=lr, weight_decay=weight_decay
         )
+        best_loss_val = np.inf
+        patience_count = 0
+        val_loss = []
+
         self.train()
         fair_classifier_loss = []
-        for n_step in trange(n_steps):
-            data_0, labels_0, context_0 = next(iter(data_0_loader))
-            data_1, labels_1, context_1 = next(iter(data_1_loader))
+        for step in trange(n_steps_per_epoch * max_num_epochs):
+            data_0, labels_0, context_0 = next(iter(data_0_loader_train))
+            data_1, labels_1, context_1 = next(iter(data_1_loader_train))
 
             if len(context_0.shape) == 1:
                 context_0 = context_0.unsqueeze(1)
                 context_1 = context_1.unsqueeze(1)
-
-            # context_0 = context_0.unsqueeze(1)
-            # # ? Does this work for N-dim data? Should this be data_dim?
-            # context_1 = context_1.unsqueeze(1)
 
             optimizer.zero_grad()
 
@@ -273,15 +278,49 @@ class BinaryFair(nn.Module):
                 probability_func=probability_func,
             )
 
+            if (step + 1) % (n_steps_per_epoch) == 0:
+                data_0_val, labels_0_val, context_0_val = next(iter(data_0_loader_val))
+                data_1_val, labels_1_val, context_1_val = next(iter(data_1_loader_val))
+
+                if len(context_0_val.shape) == 1:
+                    context_0_val = context_0_val.unsqueeze(1)
+                    context_1_val = context_1_val.unsqueeze(1)
+
+                _, _, loss_val = self.loss(
+                    data_0_val,
+                    data_1_val,
+                    labels_0=labels_0_val,
+                    labels_1=labels_1_val,
+                    context_0=context_0_val,
+                    context_1=context_1_val,
+                    return_all_losses=True,
+                    probability_func=probability_func,
+                )
+                val_loss.append(loss_val.item())
+
+                if loss_val.item() < best_loss_val:
+                    best_loss_val = loss_val.item()
+                    best_params = copy.deepcopy(self.state_dict())
+                    patience_count = 0
+                else:
+                    patience_count += 1
+
+                if patience_count >= patience:
+                    print(
+                        "Early stopping reached after {} epochs".format(
+                            int((step + 1) / n_steps_per_epoch)
+                        )
+                    )
+                    break
+
             loss.backward()
-            fair_classifier_loss.append(loss.item())
             if np.isnan(loss.item()):
                 print("Loss is nan")
                 break
             optimizer.step()
         self.eval()
 
-        return fair_classifier_loss
+        return val_loss
 
     def adversarial_accuracy(self, data_0_loader, data_1_loader, adv_classifier):
 
