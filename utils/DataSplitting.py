@@ -7,7 +7,7 @@ params = {"batch_size": 32, "shuffle": True}
 
 # Useful functions for generating data and generators
 
-# todo: Want to be able to generate all high res
+
 def gen_galton_data(
     alpha,
     Ntot_sims,
@@ -265,7 +265,16 @@ def get_embedding_generators(embedding_data, embedding_context, embedding_labels
 
 
 def get_embedding_data(
-    data_train, labels_train, context_train, data_test, labels_test, context_test, fair
+    data_train,
+    labels_train,
+    context_train,
+    data_val,
+    labels_val,
+    context_val,
+    data_test,
+    labels_test,
+    context_test,
+    fair,
 ):
     """
     returns data generators with (embedded data, context) and (embedded data, labels) for
@@ -279,6 +288,12 @@ def get_embedding_data(
         labels_1_train,
         context_0_train,
         context_1_train,
+        data_0_val,
+        data_1_val,
+        labels_0_val,
+        labels_1_val,
+        context_0_val,
+        context_1_val,
         data_0_test,
         data_1_test,
         labels_0_test,
@@ -286,7 +301,15 @@ def get_embedding_data(
         context_0_test,
         context_1_test,
     ) = split_data_by_context(
-        data_train, labels_train, context_train, data_test, labels_test, context_test
+        data_train,
+        labels_train,
+        context_train,
+        data_val,
+        labels_val,
+        context_val,
+        data_test,
+        labels_test,
+        context_test,
     )
 
     embedding_0_train, embedding_1_train = fair._embed(
@@ -294,6 +317,9 @@ def get_embedding_data(
         data_1_train,
         context_0_train.unsqueeze(1),
         context_1_train.unsqueeze(1),
+    )
+    embedding_0_val, embedding_1_val = fair._embed(
+        data_0_val, data_1_val, context_0_val.unsqueeze(1), context_1_val.unsqueeze(1),
     )
     embedding_0_test, embedding_1_test = fair._embed(
         data_0_test,
@@ -308,19 +334,37 @@ def get_embedding_data(
     embedding_context_train = torch.cat([context_0_train, context_1_train], dim=0)
     embedding_labels_train = torch.cat([labels_0_train, labels_1_train], dim=0)
 
+    embedding_data_val = torch.cat(
+        [embedding_0_val.detach(), embedding_1_val.detach()], dim=0
+    )
+    embedding_context_val = torch.cat([context_0_val, context_1_val], dim=0)
+    embedding_labels_val = torch.cat([labels_0_val, labels_1_val], dim=0)
+
     embedding_data_test = torch.cat(
         [embedding_0_test.detach(), embedding_1_test.detach()], dim=0
     )
     embedding_context_test = torch.cat([context_0_test, context_1_test], dim=0)
     embedding_labels_test = torch.cat([labels_0_test, labels_1_test], dim=0)
 
-    embedding_context_generator, embedding_labels_generator = get_embedding_generators(
+    (
+        embedding_context_generator_train,
+        embedding_labels_generator_train,
+    ) = get_embedding_generators(
         embedding_data_train, embedding_context_train, embedding_labels_train
     )
 
+    (
+        embedding_context_generator_val,
+        embedding_labels_generator_val,
+    ) = get_embedding_generators(
+        embedding_data_val, embedding_context_val, embedding_labels_val
+    )
+
     return (
-        embedding_context_generator,
-        embedding_labels_generator,
+        embedding_context_generator_train,
+        embedding_labels_generator_train,
+        embedding_context_generator_val,
+        embedding_labels_generator_val,
         embedding_data_test,
         embedding_context_test,
         embedding_labels_test,
