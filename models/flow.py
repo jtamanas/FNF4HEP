@@ -89,7 +89,12 @@ class Flow(flows.Flow):
             labels = labels.squeeze()
 
         mle_loss = -self.log_prob(inputs=data, context=context).mean()
-        label_loss = self.classifier.loss(data, labels).mean()
+        # Need to embed data before evaluating classifier
+
+        embedded_data, _ = self._transform(data, context)
+        
+        # label_loss = self.classifier.loss(data, labels).mean()
+        label_loss = self.classifier.loss(embedded_data, labels).mean()
 
         tot_loss = self.gamma * mle_loss + (1.0 - self.gamma) * label_loss
 
@@ -125,11 +130,12 @@ class Flow(flows.Flow):
 
             if (n_step + 1) % (n_steps_per_epoch) == 0:
                 data_val, labels_val, context_val = next(iter(data_loader_val))
-                tot_loss_val, mle_loss_val, label_loss_val = self.prob_flow_loss(data_val, labels_val, context_val)
+                tot_loss_val, mle_loss_val, label_loss_val = self.prob_flow_loss(
+                    data_val, labels_val, context_val
+                )
                 val_loss_tot.append(tot_loss_val.item())
                 val_loss_mle.append(mle_loss_val.item())
                 val_loss_label.append(label_loss_val.item())
-
 
                 if tot_loss_val.item() < best_loss_val:
                     best_loss_val = tot_loss_val.item()
