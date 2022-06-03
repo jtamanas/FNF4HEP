@@ -160,15 +160,11 @@ class BinaryFair(nn.Module):
 
         return L_0.mean()
 
-    def _classifier_loss(self, embd_0, embd_1, labels_0, labels_1):
+    def _classifier_loss(self, embedding, labels):
         """
         Not yet sure how to handle the context here.
         """
-        labels = torch.cat([labels_0, labels_1]).squeeze()
-
-        embds = torch.cat([embd_0, embd_1])
-        label_preds = self.classifier.forward(embds)
-
+        label_preds = self.classifier.forward(embedding)
         return self.classifier.criterion(label_preds, labels)
 
     def loss(
