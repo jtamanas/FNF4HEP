@@ -173,28 +173,24 @@ class BinaryFair(nn.Module):
 
     def loss(
         self,
-        data_0,
-        data_1,
-        labels_0,
-        labels_1,
-        context_0=None,
-        context_1=None,
+        data,
+        labels,
+        context=None,
         return_all_losses=False,
         probability_func=None,
     ):
+        embedding = self._embed(data, context)
+        L_clf = self._classifier_loss(embedding, labels)
+        
         if self.gamma == 0:
-            embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
             return (
                 torch.tensor(0),
-                self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
-                self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
+                L_clf,
+                L_clf,
             )
 
-        L_KL = self._KL_loss(data_0, data_1, context_0, context_1, probability_func)
+        L_KL = self._KL_loss(data, context, probability_func)
 
-        embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
-
-        L_clf = self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1)
         L_total = self.gamma * L_KL + (1.0 - self.gamma) * L_clf
 
         if return_all_losses:
