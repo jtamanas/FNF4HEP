@@ -11,6 +11,15 @@ import math
 
 
 class BinaryFair(nn.Module):
+    """
+    optimal_adversary, adversarial_accuracy, and fit functions are the only
+    things keeping this from being a continuous fair model.
+        (basically anything with data_loaders)
+
+    The fit function and adversarial_accuracy are easy to adapt,
+    but we'll need to think about the optimal adversary a bit more.
+    """
+
     def __init__(
         self,
         data_dim,
@@ -178,7 +187,6 @@ class BinaryFair(nn.Module):
         else:
             L_KL = self._KL_loss(data, context, probability_func)
 
-
         L_total = self.gamma * L_KL + (1.0 - self.gamma) * L_clf
 
         if return_all_losses:
@@ -206,7 +214,7 @@ class BinaryFair(nn.Module):
         val_loss = []
 
         self.train()
-        fair_classifier_loss = []
+        fair_classifier_loss = []  #! this is unused
         for step in trange(n_steps_per_epoch * max_num_epochs):
             data_0, labels_0, context_0 = next(iter(data_0_loader_train))
             data_1, labels_1, context_1 = next(iter(data_1_loader_train))
@@ -217,51 +225,59 @@ class BinaryFair(nn.Module):
 
             optimizer.zero_grad()
 
+            data = torch.cat([data_0, data_1], dim=0)
+            labels = torch.cat([labels_0, labels_1], dim=0)
+            context = torch.cat([context_0, context_1], dim=0)
+
             _, _, loss = self.loss(
-                data_0,
-                data_1,
-                labels_0=labels_0,
-                labels_1=labels_1,
-                context_0=context_0,
-                context_1=context_1,
+                data,
+                labels=labels,
+                context=context,
                 return_all_losses=True,
                 probability_func=probability_func,
             )
 
             if (step + 1) % (n_steps_per_epoch) == 0:
-                data_0_val, labels_0_val, context_0_val = next(iter(data_0_loader_val))
-                data_1_val, labels_1_val, context_1_val = next(iter(data_1_loader_val))
-
-                if len(context_0_val.shape) == 1:
-                    context_0_val = context_0_val.unsqueeze(1)
-                    context_1_val = context_1_val.unsqueeze(1)
-
-                _, _, loss_val = self.loss(
-                    data_0_val,
-                    data_1_val,
-                    labels_0=labels_0_val,
-                    labels_1=labels_1_val,
-                    context_0=context_0_val,
-                    context_1=context_1_val,
-                    return_all_losses=True,
-                    probability_func=probability_func,
-                )
-                val_loss.append(loss_val.item())
-
-                if loss_val.item() < best_loss_val:
-                    best_loss_val = loss_val.item()
-                    best_params = copy.deepcopy(self.state_dict())
-                    patience_count = 0
-                else:
-                    patience_count += 1
-
-                if patience_count >= patience:
-                    print(
-                        "Early stopping reached after {} epochs".format(
-                            int((step + 1) / n_steps_per_epoch)
-                        )
+                with torch.no_grad():
+                    data_0_val, labels_0_val, context_0_val = next(
+                        iter(data_0_loader_val)
                     )
-                    break
+                    data_1_val, labels_1_val, context_1_val = next(
+                        iter(data_1_loader_val)
+                    )
+
+                    if len(context_0_val.shape) == 1:
+                        context_0_val = context_0_val.unsqueeze(1)
+                        context_1_val = context_1_val.unsqueeze(1)
+
+                    data_val = torch.cat([data_0_val, data_1_val], dim=0)
+                    labels_val = torch.cat([labels_0_val, labels_1_val], dim=0)
+                    context_val = torch.cat([context_0_val, context_1_val], dim=0)
+
+                    _, _, loss_val = self.loss(
+                        data_val,
+                        labels=labels_val,
+                        context=context_val,
+                        return_all_losses=True,
+                        probability_func=probability_func,
+                    )
+                    val_loss.append(loss_val.item())
+
+                    if loss_val.item() < best_loss_val:
+                        best_loss_val = loss_val.item()
+                        #! best_params are not used anywhere
+                        best_params = copy.deepcopy(self.state_dict())
+                        patience_count = 0
+                    else:
+                        patience_count += 1
+
+                    if patience_count >= patience:
+                        print(
+                            "Early stopping reached after {} epochs".format(
+                                int((step + 1) / n_steps_per_epoch)
+                            )
+                        )
+                        break
 
             loss.backward()
             if np.isnan(loss.item()):
@@ -277,14 +293,19 @@ class BinaryFair(nn.Module):
         data_0, _, context_0 = next(iter(data_0_loader))
         data_1, _, context_1 = next(iter(data_1_loader))
 
-        embedding_0, embedding_1 = self._embed(data_0, data_1)
+        # ? This is the old version. How did these get embedded with no context?
+        # embedding_0, embedding_1 = self._embed(data_0, data_1)
+
+        embedding_0 = self._embed(data_0, context_0)
+        embedding_1 = self._embed(data_1, context_1)
 
         embedded_data_test = torch.cat([embedding_0, embedding_1], dim=0)
         embedded_context_test = torch.cat([context_0, context_1], dim=0)
 
         acc = (
             (
-                (adv_classifier.forward(embedded_data_test) > 0.0)
+                #! adversarial classifier should have no activation on the output
+                (adv_classifier.forward(embedded_data_test) > 0.0)  
                 == embedded_context_test
             )
             .float()
