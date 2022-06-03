@@ -77,7 +77,7 @@ class BinaryFair(nn.Module):
         return self.flow.sample(num_samples=context.shape[0], context=context)
 
     def _embed(self, data, context=None):
-        return self.flow._transform(data, context=context)
+        return self.flow._transform(data, context=context)[0]
 
     def optimal_adversary(
         self,
@@ -131,9 +131,9 @@ class BinaryFair(nn.Module):
         Log prob of unit gaussian.
 
         Constants are probably not needed but are nice to have because
-        it enables to calculate exact KLs later on.
+        it enables to calculate exact KLs if needed
         """
-        return -0.5 * (z ** 2) - math.log(math.sqrt(2 * math.pi))
+        return (-0.5 * (z ** 2) - math.log(math.sqrt(2 * math.pi))).sum(dim=-1)
 
     def _KL_loss(self, data, context=None, probability_func=None):
         """
@@ -161,15 +161,20 @@ class BinaryFair(nn.Module):
         z, _ = self.flow._transform(data, context)
 
         logP_Z_z = self._log_prob(z, context, probability_func)
-        reference_log_prob = self._reference_log_prob(data, context, probability_func)
+        
+        reference_log_prob = self._reference_log_prob(z, context, probability_func)
 
-        L_0 = reference_log_prob - logP_Z_z
+        # we are sampling from the latent space, so we need to take the expectation
+        # with respect to samples from P_Z rather than the reference distribution
+        #? Should we sample from reference and get logprobs with same contexts 
+        #? in order to symmetrize the loss? 
+        L_0 = logP_Z_z - reference_log_prob
 
         return L_0.mean()
 
     def _classifier_loss(self, embedding, labels):
         label_preds = self.classifier.forward(embedding)
-        return self.classifier.criterion(label_preds, labels)
+        return self.classifier.criterion(label_preds, labels.squeeze())
 
     def loss(
         self,
