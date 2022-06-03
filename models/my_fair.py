@@ -1,3 +1,4 @@
+from calendar import c
 import torch
 import torch.nn as nn
 from .flow import Flow
@@ -6,6 +7,7 @@ from sklearn.metrics import accuracy_score
 from tqdm.auto import trange
 import numpy as np
 import copy
+import math
 
 
 class BinaryFair(nn.Module):
@@ -112,7 +114,10 @@ class BinaryFair(nn.Module):
     #     return f0invz1, f1invz0
 
     def optimal_adversary(
-        self, data_0_loader, data_1_loader, probability_func=None,
+        self,
+        data_0_loader,
+        data_1_loader,
+        probability_func=None,
     ):
 
         data_0, _, context_0 = next(iter(data_0_loader))
@@ -142,57 +147,60 @@ class BinaryFair(nn.Module):
 
         return stat_dist, mu_star_0, mu_star_1
 
-    def _log_prob(self, z, context_0=None, context_1=None, probability_func=None):
-
-        f0invz, logdetf0invz = self.flow0._transform.inverse(z, context_0)
-        f1invz, logdetf1invz = self.flow0._transform.inverse(z, context_1)
-
-        log_P_0_z = probability_func.log_prob(f0invz, context_0)
-        log_P_1_z = probability_func.log_prob(f1invz, context_1)
-
-        logP_Z0_z = log_P_0_z + logdetf0invz
-        logP_Z1_z = log_P_1_z + logdetf1invz
-
-        return logP_Z0_z, logP_Z1_z
-
-        # probability flow loss + classifier loss
-
-    def _KL_loss(
-        self, data_0, data_1, context_0=None, context_1=None, probability_func=None
-    ):
+    def _log_prob(self, z, context, probability_func):
         """
-        data_0: [batch_size, data_dim]
-            Data with label 0
-        data_1: [batch_size, data_dim]
-            Data with label 1
-
-        Note in the paper, they have equal numbers of each class and then take
-        the mean after adding. Here we'll take the mean first and then add scalars
+        This is the probabilty in the fair latent space
+        Eqn. 4 of https://arxiv.org/abs/2106.05937
         """
-        # z0, _, _ = self.flow0._fair_forward(data_0, context_0)
-        # z1, _, _ = self.flow0._fair_forward(data_1, context_1)
+        finv_z, logdet_finv_z = self.flow0._transform.inverse(z, context)
+        
+        log_P_z = probability_func.log_prob(finv_z, context)
 
-        # ? Do I need to use fair forward which uses the embedding net? Or does
-        # ? transform do this as well?
-        # I think just _transform is fine because the embedding net is just
-        # identity by default. Maybe for forward compatability tho?
+        logP_Z_z = log_P_z + logdet_finv_z
+        
+        return logP_Z_z
 
-        z0, _ = self.flow0._transform(data_0, context_0)
-        z1, _ = self.flow0._transform(data_1, context_1)
+    def _reference_log_prob(self, z, context=None, probability_func=None):
+        """
+        Log prob of unit gaussian. 
+        
+        Constants are probably not needed but are nice to have because
+        it enables to calculate exact KLs later on.
+        """
+        return - 0.5 * (z ** 2) - math.log(math.sqrt(2 * math.pi)) 
+    
 
-        logP_Z0_z0, logP_Z1_z0 = self._log_prob(
-            z0, context_0, context_1, probability_func
-        )
-        logP_Z0_z1, logP_Z1_z1 = self._log_prob(
-            z1, context_0, context_1, probability_func
-        )
+    def _KL_loss(self, data, context=None, probability_func=None):
+        """
+        data: torch.Tensor[batch_size, data_dim]
+            Batch of features, does not include sensitive features
+            
+        context: torch.Tensor[batch_size, context_dim]
+            Batch of sensitive features associated with data 
+            
+        probability_func: function
+            Consumes data and context and returns a logprob
+        
+        
+        This differs from the original fair normalizing flow paper in two ways
+        
+            1) The latent probabilities are mapped onto the unit gaussian rather than
+                some arbitrary distribution that both pdfs converge on
+                
+            2) The distribution of contexts is not fixed, but  is assumed to be 
+                uniformly sampled. 
+                
+        These two differences allow us to adapt fair normalizing flows to 
+            continuous sensitive features.
+        """
+        z, _ = self.flow0._transform(data, context)
+        
+        logP_Z_z = self._log_prob(z, context, probability_func)
+        reference_log_prob = self._reference_log_prob(data, context, probability_func)
 
-        L_0 = logP_Z0_z0 - logP_Z1_z0
-        L_1 = logP_Z1_z1 - logP_Z0_z1
+        L_0 = reference_log_prob - logP_Z_z
 
-        # self._log_prob(z, context, probability_func)
-
-        return (L_0 + L_1).mean()
+        return L_0.mean()
 
     def _classifier_loss(self, embd_0, embd_1, labels_0, labels_1):
         """
