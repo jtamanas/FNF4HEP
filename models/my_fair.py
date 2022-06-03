@@ -59,7 +59,6 @@ class BinaryFair(nn.Module):
 
         self.classifier = BinaryClassifier(self.embedding_dim)  # Fair Classifier
 
-
     def classifier_accuracy(self, embd, labels):
         label_pred = self.classifier(embd).sigmoid()
         bin_pred = (label_pred > 0.5).float()
@@ -77,9 +76,9 @@ class BinaryFair(nn.Module):
         data_1_loader,
         probability_func=None,
     ):
-        # TODO: In the continuous case, there should only be a single dataloader. 
+        # TODO: In the continuous case, there should only be a single dataloader.
         # Figure out how to handle this.
-        
+
         data_0, _, context_0 = next(iter(data_0_loader))
         data_1, _, context_1 = next(iter(data_1_loader))
 
@@ -111,48 +110,47 @@ class BinaryFair(nn.Module):
         Eqn. 4 of https://arxiv.org/abs/2106.05937
         """
         finv_z, logdet_finv_z = self.flow._transform.inverse(z, context)
-        
+
         log_P_z = probability_func.log_prob(finv_z, context)
 
         logP_Z_z = log_P_z + logdet_finv_z
-        
+
         return logP_Z_z
 
     def _reference_log_prob(self, z, context=None, probability_func=None):
         """
-        Log prob of unit gaussian. 
-        
+        Log prob of unit gaussian.
+
         Constants are probably not needed but are nice to have because
         it enables to calculate exact KLs later on.
         """
-        return - 0.5 * (z ** 2) - math.log(math.sqrt(2 * math.pi)) 
-    
+        return -0.5 * (z ** 2) - math.log(math.sqrt(2 * math.pi))
 
     def _KL_loss(self, data, context=None, probability_func=None):
         """
         data: torch.Tensor[batch_size, data_dim]
             Batch of features, does not include sensitive features
-            
+
         context: torch.Tensor[batch_size, context_dim]
-            Batch of sensitive features associated with data 
-            
+            Batch of sensitive features associated with data
+
         probability_func: function
             Consumes data and context and returns a logprob
-        
-        
+
+
         This differs from the original fair normalizing flow paper in two ways
-        
+
             1) The latent probabilities are mapped onto the unit gaussian rather than
                 some arbitrary distribution that both pdfs converge on
-                
-            2) The distribution of contexts is not fixed, but  is assumed to be 
-                uniformly sampled. 
-                
-        These two differences allow us to adapt fair normalizing flows to 
+
+            2) The distribution of contexts is not fixed, but  is assumed to be
+                uniformly sampled.
+
+        These two differences allow us to adapt fair normalizing flows to
             continuous sensitive features.
         """
         z, _ = self.flow._transform(data, context)
-        
+
         logP_Z_z = self._log_prob(z, context, probability_func)
         reference_log_prob = self._reference_log_prob(data, context, probability_func)
 
@@ -161,9 +159,6 @@ class BinaryFair(nn.Module):
         return L_0.mean()
 
     def _classifier_loss(self, embedding, labels):
-        """
-        Not yet sure how to handle the context here.
-        """
         label_preds = self.classifier.forward(embedding)
         return self.classifier.criterion(label_preds, labels)
 
@@ -177,15 +172,12 @@ class BinaryFair(nn.Module):
     ):
         embedding = self._embed(data, context)
         L_clf = self._classifier_loss(embedding, labels)
-        
-        if self.gamma == 0:
-            return (
-                torch.tensor(0),
-                L_clf,
-                L_clf,
-            )
 
-        L_KL = self._KL_loss(data, context, probability_func)
+        if self.gamma == 0:
+            L_KL = torch.tensor(0)
+        else:
+            L_KL = self._KL_loss(data, context, probability_func)
+
 
         L_total = self.gamma * L_KL + (1.0 - self.gamma) * L_clf
 
