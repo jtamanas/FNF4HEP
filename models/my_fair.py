@@ -46,7 +46,7 @@ class BinaryFair(nn.Module):
 
         self.gamma = gamma
 
-        self.flow0 = Flow(
+        self.flow = Flow(
             data_dim=self.data_dim,
             context_dim=self.context_dim,
             hidden_dim=self.flow_hidden_dim,
@@ -59,59 +59,17 @@ class BinaryFair(nn.Module):
 
         self.classifier = BinaryClassifier(self.embedding_dim)  # Fair Classifier
 
-    # def forward(self, data, context):
-    #     embedding0, embedding1 = self._embed(data_0=data, data_1=data)
-
-    #     embeddings = embedding0 * (context == 0) + embedding1 * (context == 1)
-    #     label_pred = self.classifier(embeddings).sigmoid()
-
-    #     return label_pred
 
     def classifier_accuracy(self, embd, labels):
         label_pred = self.classifier(embd).sigmoid()
         bin_pred = (label_pred > 0.5).float()
         return accuracy_score(bin_pred, labels)
 
-    def sample(self, context_0=None, context_1=None):
-        samples_0 = self.flow0.sample(num_samples=context.shape[0], context=context_0)
-        samples_1 = self.flow0.sample(num_samples=context.shape[0], context=context_1)
+    def sample(self, context=None):
+        return self.flow.sample(num_samples=context.shape[0], context=context)
 
-        if context is not None:
-            context = context.bool()
-            samples = samples_0 * (~context) + samples_1 * context
-        else:
-            samples = samples_0 + samples_1
-        return samples
-
-    def _embed(self, data_0=None, data_1=None, context_0=None, context_1=None):
-        embedding0 = None
-        embedding1 = None
-
-        if data_0 is not None:
-            # embedding0, logabsdet0, _ = self.flow0._fair_forward(
-            #     data_0, context=context_0
-            # )
-            embedding0, logabsdet0 = self.flow0._transform(data_0, context=context_0)
-            # ? should these be _fair_forward or just _transform?
-
-        # if data_1 is not None:
-        #     embedding1, logabsdet1, _ = self.flow0._fair_forward(
-        #         data_1, context=context_1
-        #     )
-        if data_1 is not None:
-            embedding1, logabsdet1 = self.flow0._transform(data_1, context=context_1)
-
-        return embedding0, embedding1
-
-    # def _fair_embed(self, x0=None, x1=None, context_0=None, context_1=None):
-
-    #     (z0, _,) = self.flow0._transform(x0, context_0)
-    #     (z1, _,) = self.flow0._transform(x1, context_1)
-
-    #     f0invz1, _ = self.flow0._transform.inverse(z1, context_0)
-    #     f1invz0, _ = self.flow0._transform.inverse(z0, context_1)
-
-    #     return f0invz1, f1invz0
+    def _embed(self, data, context=None):
+        return self.flow._transform(data, context=context)
 
     def optimal_adversary(
         self,
@@ -119,7 +77,9 @@ class BinaryFair(nn.Module):
         data_1_loader,
         probability_func=None,
     ):
-
+        # TODO: In the continuous case, there should only be a single dataloader. 
+        # Figure out how to handle this.
+        
         data_0, _, context_0 = next(iter(data_0_loader))
         data_1, _, context_1 = next(iter(data_1_loader))
 
@@ -127,15 +87,13 @@ class BinaryFair(nn.Module):
             context_0 = context_0.unsqueeze(1)
             context_1 = context_1.unsqueeze(1)
 
-        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
-        z1, _, _ = self.flow0._fair_forward(data_1, context_1)
+        z0, _, _ = self.flow._fair_forward(data_0, context_0)
+        z1, _, _ = self.flow._fair_forward(data_1, context_1)
 
-        logP_Z0_z0, logP_Z1_z0 = self._log_prob(
-            z0, context_0, context_1, probability_func
-        )
-        logP_Z0_z1, logP_Z1_z1 = self._log_prob(
-            z1, context_0, context_1, probability_func
-        )
+        logP_Z0_z0 = self._log_prob(z0, context_0, probability_func)
+        logP_Z1_z0 = self._log_prob(z0, context_1, probability_func)
+        logP_Z0_z1 = self._log_prob(z1, context_0, probability_func)
+        logP_Z1_z1 = self._log_prob(z1, context_1, probability_func)
 
         mu_star_0 = logP_Z1_z0 >= logP_Z0_z0
         mu_star_1 = logP_Z1_z1 >= logP_Z0_z1
@@ -152,7 +110,7 @@ class BinaryFair(nn.Module):
         This is the probabilty in the fair latent space
         Eqn. 4 of https://arxiv.org/abs/2106.05937
         """
-        finv_z, logdet_finv_z = self.flow0._transform.inverse(z, context)
+        finv_z, logdet_finv_z = self.flow._transform.inverse(z, context)
         
         log_P_z = probability_func.log_prob(finv_z, context)
 
@@ -193,7 +151,7 @@ class BinaryFair(nn.Module):
         These two differences allow us to adapt fair normalizing flows to 
             continuous sensitive features.
         """
-        z, _ = self.flow0._transform(data, context)
+        z, _ = self.flow._transform(data, context)
         
         logP_Z_z = self._log_prob(z, context, probability_func)
         reference_log_prob = self._reference_log_prob(data, context, probability_func)
