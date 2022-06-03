@@ -1,3 +1,4 @@
+from calendar import c
 import torch
 import torch.nn as nn
 from .flow import Flow
@@ -6,9 +7,19 @@ from sklearn.metrics import accuracy_score
 from tqdm.auto import trange
 import numpy as np
 import copy
+import math
 
 
 class BinaryFair(nn.Module):
+    """
+    optimal_adversary, adversarial_accuracy, and fit functions are the only
+    things keeping this from being a continuous fair model.
+        (basically anything with data_loaders)
+
+    The fit function and adversarial_accuracy are easy to adapt,
+    but we'll need to think about the optimal adversary a bit more.
+    """
+
     def __init__(
         self,
         data_dim,
@@ -44,7 +55,7 @@ class BinaryFair(nn.Module):
 
         self.gamma = gamma
 
-        self.flow0 = Flow(
+        self.flow = Flow(
             data_dim=self.data_dim,
             context_dim=self.context_dim,
             hidden_dim=self.flow_hidden_dim,
@@ -57,63 +68,25 @@ class BinaryFair(nn.Module):
 
         self.classifier = BinaryClassifier(self.embedding_dim)  # Fair Classifier
 
-    # def forward(self, data, context):
-    #     embedding0, embedding1 = self._embed(data_0=data, data_1=data)
-
-    #     embeddings = embedding0 * (context == 0) + embedding1 * (context == 1)
-    #     label_pred = self.classifier(embeddings).sigmoid()
-
-    #     return label_pred
-
     def classifier_accuracy(self, embd, labels):
         label_pred = self.classifier(embd).sigmoid()
         bin_pred = (label_pred > 0.5).float()
         return accuracy_score(bin_pred, labels)
 
-    def sample(self, context_0=None, context_1=None):
-        samples_0 = self.flow0.sample(num_samples=context.shape[0], context=context_0)
-        samples_1 = self.flow0.sample(num_samples=context.shape[0], context=context_1)
+    def sample(self, context=None):
+        return self.flow.sample(num_samples=context.shape[0], context=context)
 
-        if context is not None:
-            context = context.bool()
-            samples = samples_0 * (~context) + samples_1 * context
-        else:
-            samples = samples_0 + samples_1
-        return samples
-
-    def _embed(self, data_0=None, data_1=None, context_0=None, context_1=None):
-        embedding0 = None
-        embedding1 = None
-
-        if data_0 is not None:
-            # embedding0, logabsdet0, _ = self.flow0._fair_forward(
-            #     data_0, context=context_0
-            # )
-            embedding0, logabsdet0 = self.flow0._transform(data_0, context=context_0)
-            # ? should these be _fair_forward or just _transform?
-
-        # if data_1 is not None:
-        #     embedding1, logabsdet1, _ = self.flow0._fair_forward(
-        #         data_1, context=context_1
-        #     )
-        if data_1 is not None:
-            embedding1, logabsdet1 = self.flow0._transform(data_1, context=context_1)
-
-        return embedding0, embedding1
-
-    # def _fair_embed(self, x0=None, x1=None, context_0=None, context_1=None):
-
-    #     (z0, _,) = self.flow0._transform(x0, context_0)
-    #     (z1, _,) = self.flow0._transform(x1, context_1)
-
-    #     f0invz1, _ = self.flow0._transform.inverse(z1, context_0)
-    #     f1invz0, _ = self.flow0._transform.inverse(z0, context_1)
-
-    #     return f0invz1, f1invz0
+    def _embed(self, data, context=None):
+        return self.flow._transform(data, context=context)[0]
 
     def optimal_adversary(
-        self, data_0_loader, data_1_loader, probability_func=None,
+        self,
+        data_0_loader,
+        data_1_loader,
+        probability_func=None,
     ):
+        # TODO: In the continuous case, there should only be a single dataloader.
+        # Figure out how to handle this.
 
         data_0, _, context_0 = next(iter(data_0_loader))
         data_1, _, context_1 = next(iter(data_1_loader))
@@ -122,15 +95,13 @@ class BinaryFair(nn.Module):
             context_0 = context_0.unsqueeze(1)
             context_1 = context_1.unsqueeze(1)
 
-        z0, _, _ = self.flow0._fair_forward(data_0, context_0)
-        z1, _, _ = self.flow0._fair_forward(data_1, context_1)
+        z0, _, _ = self.flow._fair_forward(data_0, context_0)
+        z1, _, _ = self.flow._fair_forward(data_1, context_1)
 
-        logP_Z0_z0, logP_Z1_z0 = self._log_prob(
-            z0, context_0, context_1, probability_func
-        )
-        logP_Z0_z1, logP_Z1_z1 = self._log_prob(
-            z1, context_0, context_1, probability_func
-        )
+        logP_Z0_z0 = self._log_prob(z0, context_0, probability_func)
+        logP_Z1_z0 = self._log_prob(z0, context_1, probability_func)
+        logP_Z0_z1 = self._log_prob(z1, context_0, probability_func)
+        logP_Z1_z1 = self._log_prob(z1, context_1, probability_func)
 
         mu_star_0 = logP_Z1_z0 >= logP_Z0_z0
         mu_star_1 = logP_Z1_z1 >= logP_Z0_z1
@@ -142,93 +113,85 @@ class BinaryFair(nn.Module):
 
         return stat_dist, mu_star_0, mu_star_1
 
-    def _log_prob(self, z, context_0=None, context_1=None, probability_func=None):
-
-        f0invz, logdetf0invz = self.flow0._transform.inverse(z, context_0)
-        f1invz, logdetf1invz = self.flow0._transform.inverse(z, context_1)
-
-        log_P_0_z = probability_func.log_prob(f0invz, context_0)
-        log_P_1_z = probability_func.log_prob(f1invz, context_1)
-
-        logP_Z0_z = log_P_0_z + logdetf0invz
-        logP_Z1_z = log_P_1_z + logdetf1invz
-
-        return logP_Z0_z, logP_Z1_z
-
-        # probability flow loss + classifier loss
-
-    def _KL_loss(
-        self, data_0, data_1, context_0=None, context_1=None, probability_func=None
-    ):
+    def _log_prob(self, z, context, probability_func):
         """
-        data_0: [batch_size, data_dim]
-            Data with label 0
-        data_1: [batch_size, data_dim]
-            Data with label 1
-
-        Note in the paper, they have equal numbers of each class and then take
-        the mean after adding. Here we'll take the mean first and then add scalars
+        This is the probabilty in the fair latent space
+        Eqn. 4 of https://arxiv.org/abs/2106.05937
         """
-        # z0, _, _ = self.flow0._fair_forward(data_0, context_0)
-        # z1, _, _ = self.flow0._fair_forward(data_1, context_1)
+        finv_z, logdet_finv_z = self.flow._transform.inverse(z, context)
 
-        # ? Do I need to use fair forward which uses the embedding net? Or does
-        # ? transform do this as well?
-        # I think just _transform is fine because the embedding net is just
-        # identity by default. Maybe for forward compatability tho?
+        log_P_z = probability_func.log_prob(finv_z, context)
 
-        z0, _ = self.flow0._transform(data_0, context_0)
-        z1, _ = self.flow0._transform(data_1, context_1)
+        logP_Z_z = log_P_z + logdet_finv_z
 
-        logP_Z0_z0, logP_Z1_z0 = self._log_prob(
-            z0, context_0, context_1, probability_func
-        )
-        logP_Z0_z1, logP_Z1_z1 = self._log_prob(
-            z1, context_0, context_1, probability_func
-        )
+        return logP_Z_z
 
-        L_0 = logP_Z0_z0 - logP_Z1_z0
-        L_1 = logP_Z1_z1 - logP_Z0_z1
-
-        # self._log_prob(z, context, probability_func)
-
-        return (L_0 + L_1).mean()
-
-    def _classifier_loss(self, embd_0, embd_1, labels_0, labels_1):
+    def _reference_log_prob(self, z, context=None, probability_func=None):
         """
-        Not yet sure how to handle the context here.
+        Log prob of unit gaussian.
+
+        Constants are probably not needed but are nice to have because
+        it enables to calculate exact KLs if needed
         """
-        labels = torch.cat([labels_0, labels_1]).squeeze()
+        return (-0.5 * (z ** 2) - math.log(math.sqrt(2 * math.pi))).sum(dim=-1)
 
-        embds = torch.cat([embd_0, embd_1])
-        label_preds = self.classifier.forward(embds)
+    def _KL_loss(self, data, context=None, probability_func=None):
+        """
+        data: torch.Tensor[batch_size, data_dim]
+            Batch of features, does not include sensitive features
 
-        return self.classifier.criterion(label_preds, labels)
+        context: torch.Tensor[batch_size, context_dim]
+            Batch of sensitive features associated with data
+
+        probability_func: function
+            Consumes data and context and returns a logprob
+
+
+        This differs from the original fair normalizing flow paper in two ways
+
+            1) The latent probabilities are mapped onto the unit gaussian rather than
+                some arbitrary distribution that both pdfs converge on
+
+            2) The distribution of contexts is not fixed, but  is assumed to be
+                uniformly sampled.
+
+        These two differences allow us to adapt fair normalizing flows to
+            continuous sensitive features.
+        """
+        z, _ = self.flow._transform(data, context)
+
+        logP_Z_z = self._log_prob(z, context, probability_func)
+        
+        reference_log_prob = self._reference_log_prob(z, context, probability_func)
+
+        # we are sampling from the latent space, so we need to take the expectation
+        # with respect to samples from P_Z rather than the reference distribution
+        #? Should we sample from reference and get logprobs with same contexts 
+        #? in order to symmetrize the loss? 
+        L_0 = logP_Z_z - reference_log_prob
+
+        return L_0.mean()
+
+    def _classifier_loss(self, embedding, labels):
+        label_preds = self.classifier.forward(embedding)
+        return self.classifier.criterion(label_preds, labels.squeeze())
 
     def loss(
         self,
-        data_0,
-        data_1,
-        labels_0,
-        labels_1,
-        context_0=None,
-        context_1=None,
+        data,
+        labels,
+        context=None,
         return_all_losses=False,
         probability_func=None,
     ):
+        embedding = self._embed(data, context)
+        L_clf = self._classifier_loss(embedding, labels)
+
         if self.gamma == 0:
-            embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
-            return (
-                torch.tensor(0),
-                self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
-                self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1),
-            )
+            L_KL = torch.tensor(0)
+        else:
+            L_KL = self._KL_loss(data, context, probability_func)
 
-        L_KL = self._KL_loss(data_0, data_1, context_0, context_1, probability_func)
-
-        embedding_0, embedding_1 = self._embed(data_0, data_1, context_0, context_1)
-
-        L_clf = self._classifier_loss(embedding_0, embedding_1, labels_0, labels_1)
         L_total = self.gamma * L_KL + (1.0 - self.gamma) * L_clf
 
         if return_all_losses:
@@ -256,7 +219,7 @@ class BinaryFair(nn.Module):
         val_loss = []
 
         self.train()
-        fair_classifier_loss = []
+        fair_classifier_loss = []  #! this is unused
         for step in trange(n_steps_per_epoch * max_num_epochs):
             data_0, labels_0, context_0 = next(iter(data_0_loader_train))
             data_1, labels_1, context_1 = next(iter(data_1_loader_train))
@@ -267,51 +230,59 @@ class BinaryFair(nn.Module):
 
             optimizer.zero_grad()
 
+            data = torch.cat([data_0, data_1], dim=0)
+            labels = torch.cat([labels_0, labels_1], dim=0)
+            context = torch.cat([context_0, context_1], dim=0)
+
             _, _, loss = self.loss(
-                data_0,
-                data_1,
-                labels_0=labels_0,
-                labels_1=labels_1,
-                context_0=context_0,
-                context_1=context_1,
+                data,
+                labels=labels,
+                context=context,
                 return_all_losses=True,
                 probability_func=probability_func,
             )
 
             if (step + 1) % (n_steps_per_epoch) == 0:
-                data_0_val, labels_0_val, context_0_val = next(iter(data_0_loader_val))
-                data_1_val, labels_1_val, context_1_val = next(iter(data_1_loader_val))
-
-                if len(context_0_val.shape) == 1:
-                    context_0_val = context_0_val.unsqueeze(1)
-                    context_1_val = context_1_val.unsqueeze(1)
-
-                _, _, loss_val = self.loss(
-                    data_0_val,
-                    data_1_val,
-                    labels_0=labels_0_val,
-                    labels_1=labels_1_val,
-                    context_0=context_0_val,
-                    context_1=context_1_val,
-                    return_all_losses=True,
-                    probability_func=probability_func,
-                )
-                val_loss.append(loss_val.item())
-
-                if loss_val.item() < best_loss_val:
-                    best_loss_val = loss_val.item()
-                    best_params = copy.deepcopy(self.state_dict())
-                    patience_count = 0
-                else:
-                    patience_count += 1
-
-                if patience_count >= patience:
-                    print(
-                        "Early stopping reached after {} epochs".format(
-                            int((step + 1) / n_steps_per_epoch)
-                        )
+                with torch.no_grad():
+                    data_0_val, labels_0_val, context_0_val = next(
+                        iter(data_0_loader_val)
                     )
-                    break
+                    data_1_val, labels_1_val, context_1_val = next(
+                        iter(data_1_loader_val)
+                    )
+
+                    if len(context_0_val.shape) == 1:
+                        context_0_val = context_0_val.unsqueeze(1)
+                        context_1_val = context_1_val.unsqueeze(1)
+
+                    data_val = torch.cat([data_0_val, data_1_val], dim=0)
+                    labels_val = torch.cat([labels_0_val, labels_1_val], dim=0)
+                    context_val = torch.cat([context_0_val, context_1_val], dim=0)
+
+                    _, _, loss_val = self.loss(
+                        data_val,
+                        labels=labels_val,
+                        context=context_val,
+                        return_all_losses=True,
+                        probability_func=probability_func,
+                    )
+                    val_loss.append(loss_val.item())
+
+                    if loss_val.item() < best_loss_val:
+                        best_loss_val = loss_val.item()
+                        #! best_params are not used anywhere
+                        best_params = copy.deepcopy(self.state_dict())
+                        patience_count = 0
+                    else:
+                        patience_count += 1
+
+                    if patience_count >= patience:
+                        print(
+                            "Early stopping reached after {} epochs".format(
+                                int((step + 1) / n_steps_per_epoch)
+                            )
+                        )
+                        break
 
             loss.backward()
             if np.isnan(loss.item()):
@@ -327,14 +298,19 @@ class BinaryFair(nn.Module):
         data_0, _, context_0 = next(iter(data_0_loader))
         data_1, _, context_1 = next(iter(data_1_loader))
 
-        embedding_0, embedding_1 = self._embed(data_0, data_1)
+        # ? This is the old version. How did these get embedded with no context?
+        # embedding_0, embedding_1 = self._embed(data_0, data_1)
+
+        embedding_0 = self._embed(data_0, context_0)
+        embedding_1 = self._embed(data_1, context_1)
 
         embedded_data_test = torch.cat([embedding_0, embedding_1], dim=0)
         embedded_context_test = torch.cat([context_0, context_1], dim=0)
 
         acc = (
             (
-                (adv_classifier.forward(embedded_data_test) > 0.0)
+                #! adversarial classifier should have no activation on the output
+                (adv_classifier.forward(embedded_data_test) > 0.0)  
                 == embedded_context_test
             )
             .float()

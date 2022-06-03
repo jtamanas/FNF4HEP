@@ -112,25 +112,26 @@ class Flow(flows.Flow):
             tot_loss = self.prob_flow_loss(data, context)
 
             if (n_step + 1) % (n_steps_per_epoch) == 0:
-                data_val, context_val = next(iter(data_loader_val))
+                with torch.no_grad():
+                    data_val, context_val = next(iter(data_loader_val))
 
-                tot_loss_val = self.prob_flow_loss(data_val, context_val)
-                val_loss_tot.append(tot_loss_val.item())
+                    tot_loss_val = self.prob_flow_loss(data_val, context_val)
+                    val_loss_tot.append(tot_loss_val.item())
 
-                if tot_loss_val.item() < best_loss_val:
-                    best_loss_val = tot_loss_val.item()
-                    best_params = copy.deepcopy(self.state_dict())
-                    patience_count = 0
-                else:
-                    patience_count += 1
+                    if tot_loss_val.item() < best_loss_val:
+                        best_loss_val = tot_loss_val.item()
+                        best_params = copy.deepcopy(self.state_dict())
+                        patience_count = 0
+                    else:
+                        patience_count += 1
 
-                if patience_count >= patience:
-                    print(
-                        "Early stopping reached after {} epochs".format(
-                            int((n_step + 1) / n_steps_per_epoch)
+                    if patience_count >= patience:
+                        print(
+                            "Early stopping reached after {} epochs".format(
+                                int((n_step + 1) / n_steps_per_epoch)
+                            )
                         )
-                    )
-                    break
+                        break
 
             tot_loss.backward()
             optimizer.step()
